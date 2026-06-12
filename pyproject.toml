@@ -7,6 +7,8 @@ requires-python = ">=3.11"
 dependencies = [
     "claude-agent-sdk>=0.1",  # agentic harness: runs the loop, in-process MCP tools
     "anthropic>=0.40",        # direct Messages API for non-agentic / single-shot calls
+    "fastmcp>=2",             # MCP tool server (mcp_server/)
+    "mcp>=1.2",               # MCP protocol types
     "pydantic>=2.7",
 ]
 
