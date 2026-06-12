@@ -158,7 +158,12 @@ def run_claude(prompt: str) -> dict:
         return {"findings": []}
     if proc.returncode != 0:
         raise RuntimeError(f"claude review failed ({proc.returncode}): {proc.stderr.strip()}")
-    return parse_review_output(proc.stdout)
+    result = parse_review_output(proc.stdout)
+    print(  # debug (CI log): explains 0-finding passes and confirms the model answered
+        f"[review] {len(result.get('findings', []))} finding(s); raw head: {proc.stdout[:400]!r}",
+        file=sys.stderr,
+    )
+    return result
 
 
 def merge_findings(results: list[dict]) -> dict:
