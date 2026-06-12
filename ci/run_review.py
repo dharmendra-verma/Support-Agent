@@ -130,9 +130,15 @@ def run_claude(prompt: str, schema_path: Path = SCHEMA_PATH) -> dict:
         proc = subprocess.run(
             build_command(prompt, schema_path),
             capture_output=True, text=True, timeout=CALL_TIMEOUT_S,
+            stdin=subprocess.DEVNULL,  # CI has no TTY — never block waiting on stdin/prompts
         )
-    except subprocess.TimeoutExpired:
-        print(f"warning: review call timed out after {CALL_TIMEOUT_S}s; skipping", file=sys.stderr)
+    except subprocess.TimeoutExpired as exc:
+        tail = ((exc.stderr or exc.stdout or "") if isinstance(exc.stderr or exc.stdout, str) else "")[-600:]
+        print(
+            f"warning: review call timed out after {CALL_TIMEOUT_S}s; skipping. "
+            f"partial output: {tail!r}",
+            file=sys.stderr,
+        )
         return {"findings": []}
     if proc.returncode != 0:
         raise RuntimeError(f"claude review failed ({proc.returncode}): {proc.stderr.strip()}")
