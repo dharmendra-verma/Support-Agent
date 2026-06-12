@@ -1,0 +1,46 @@
+name: Claude PR Review
+
+# Independent review instance: runs on every PR, separate from any session that
+# generated the code. `claude -p` is non-interactive so the job can't hang.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15  # hard stop; the reviewer is non-interactive and should be quick
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # need base..head for the diff
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Run review (per-file + integration pass)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          python ci/run_review.py \
+            "origin/${{ github.base_ref }}" \
+            "${{ github.event.pull_request.head.sha }}" \
+            findings.json
+
+      - name: Post new findings as PR comments
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python ci/post_comments.py \
+            findings.json \
+            "${{ github.repository }}" \
+            "${{ github.event.pull_request.number }}" \
+            ci/dismissed_patterns.json

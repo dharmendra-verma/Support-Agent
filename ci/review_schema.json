@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ResolveDesk CI review output",
+  "description": "Schema passed to `claude -p --json-schema` so the reviewer returns machine-parseable findings.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["findings"],
+  "properties": {
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["file", "line", "category", "severity", "issue", "suggested_fix", "detected_pattern"],
+        "properties": {
+          "file": { "type": "string", "description": "Repo-relative path." },
+          "line": { "type": "integer", "minimum": 1, "description": "1-based line in the new file." },
+          "category": {
+            "type": "string",
+            "enum": ["bug", "security", "correctness-test", "breaking-change", "style", "nit", "subjective"]
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["critical", "high", "medium", "low"]
+          },
+          "issue": { "type": "string", "description": "One-sentence statement of the defect." },
+          "suggested_fix": { "type": "string", "description": "Concrete change that resolves it." },
+          "detected_pattern": {
+            "type": "string",
+            "description": "Stable short key for the rule that fired (e.g. 'empty-result-fallback'); used to dedup and suppress dismissed patterns."
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Optional; reviewer's confidence the finding is real."
+          }
+        }
+      }
+    }
+  }
+}
