@@ -67,8 +67,21 @@ In testing, a successful `Read tests/test_loop.py` did **not** surface
 loads (and *why*) is the **`InstructionsLoaded` hook**, which fires with a `load_reason`
 of `session_start | include | nested_traversal | path_glob_match | compact`.
 
-This repo ships that hook (`.claude/settings.json` → `.claude/hooks/log_instructions.py`),
-which appends every load event to `.claude/instructions-loaded.log` (gitignored).
+This repo ships the hook **script** (`.claude/hooks/log_instructions.py`), which appends
+every load event to `.claude/instructions-loaded.log` (gitignored). The hook is **opt-in
+and personal** — it is *not* registered in committed config, so it never runs for the team
+by default. To enable it for yourself, add this block to your **`.claude/settings.local.json`**
+(personal, gitignored):
+
+```json
+{
+  "hooks": {
+    "InstructionsLoaded": [
+      { "hooks": [ { "type": "command", "command": "python .claude/hooks/log_instructions.py" } ] }
+    ]
+  }
+}
+```
 
 **Procedure (run at the repo root):**
 1. Start a **fresh** `claude` session (hooks load at startup, so a new session is required
