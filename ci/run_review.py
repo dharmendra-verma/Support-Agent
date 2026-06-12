@@ -99,7 +99,7 @@ def build_testgen_prompt(path: str, existing_test_files: list[str]) -> str:
 
 # Seconds a single review call may run before we give up on it (and skip that pass)
 # rather than letting one stuck call hang the whole CI job.
-CALL_TIMEOUT_S = 240
+CALL_TIMEOUT_S = 120
 
 
 def build_command(prompt: str, schema_path: Path = SCHEMA_PATH) -> list[str]:
