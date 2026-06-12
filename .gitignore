@@ -25,3 +25,7 @@ htmlcov/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Claude Code — personal/local only, never shared via git (see docs/claude-code-setup.md)
+.claude/settings.local.json
+
