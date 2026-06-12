@@ -83,18 +83,35 @@ which appends every load event to `.claude/instructions-loaded.log` (gitignored)
 4. Ask Claude to `Read src/agent/tools.py` → expect `.claude/rules/mcp-conventions.md`
    with `path_glob_match`.
 
-### Findings log
+### Findings log (observed 2026-06-12, Claude Code on Windows)
 | Check | Expected | Observed | ✓/✗ |
 |---|---|---|---|
-| Startup loads project `CLAUDE.md` + 3 standards | `session_start`/`include` lines | _(fill from log)_ | |
-| Reading `tests/test_loop.py` loads `testing.md` | `path_glob_match` | _(fill)_ | |
-| Reading `tests/…` loads `tests/CLAUDE.md` | `nested_traversal` | _(fill)_ | |
-| Reading `src/agent/tools.py` loads `mcp-conventions.md` | `path_glob_match` | _(fill)_ | |
-| `/memory` lists the above after they load | listed | _(fill)_ | |
+| Startup loads project `CLAUDE.md` + 3 `@import` standards | `session_start`/`include` lines | 4 entries logged (`CLAUDE.md` + python-style + agent-architecture + git-workflow) | ✅ |
+| `/memory` lists project + standards | listed | shown | ✅ |
+| Reading `tests/test_loop.py` loads `testing.md` | `path_glob_match` | no new hook entry; not shown in `/memory` | ⚠️ unconfirmed |
+| Reading/under `tests/` loads `tests/CLAUDE.md` | `nested_traversal` | no new hook entry | ⚠️ unconfirmed |
+| Editing `tests/test_loop.py` loads scoped memory | a load event | no new hook entry | ⚠️ unconfirmed |
+| Reading `src/agent/tools.py` loads `mcp-conventions.md` | `path_glob_match` | not exercised | — |
 
-> Observed note (2026-06-12): `/memory` did **not** display `testing.md` after a confirmed
-> `Read` of `tests/test_loop.py`. The hook log is the source of truth; complete the Observed
-> column from `.claude/instructions-loaded.log`.
+**Finding.** Levels 1–2 of the hierarchy (project `CLAUDE.md` + `@import` composition) are
+**proven** to load — confirmed by both `/memory` and the `InstructionsLoaded` hook log.
+Levels 3–4 (directory override `tests/CLAUDE.md`, path-scoped `.claude/rules/*.md`) are
+present and **spec-correct per the official docs**, but their **scoped loading was not
+observed** in this session via `/memory` or the hook, on either read or edit of a matching
+file.
+
+**Caveat on the negative result.** The level-3/4 check is **not conclusive**: hooks load at
+**session start**, and the test was run in a session that likely began before
+`.claude/settings.json` was present (the hook log stayed frozen at a prior session's
+entries, indicating the hook wasn't active in the test session). A clean confirmation needs
+a **fresh session started after** the settings land, with the log cleared and a matching
+file read as the first action (the procedure in this section). Treat levels 3–4 as
+"configured correctly, scoped-load unconfirmed on this build" until that re-run is done.
+
+**Practical guidance.** Where guaranteed loading matters, prefer the better-supported
+mechanisms (project `CLAUDE.md` + `@import`, and nested `CLAUDE.md`) over relying on
+`.claude/rules/` path globs; keep the path rules as progressive enhancement and re-verify
+on the team's target Claude Code version with the hook log.
 
 ## 5. Precedence / risk notes
 - When a directory `CLAUDE.md` and a path rule both match, both load; treat the
