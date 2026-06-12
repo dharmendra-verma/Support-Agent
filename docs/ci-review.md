@@ -49,9 +49,26 @@ the existing tests first and skips already-covered scenarios**, emitting offline
 that follow `.claude/rules/testing.md`. Wire it into a manual or scheduled job the same way
 as the review step.
 
+## Enabling / disabling (opt-in flag)
+Auto-review is **off by default** and runs only when the repo variable
+`ENABLE_CLAUDE_REVIEW` is `true` (job-level `if:` gate):
+```bash
+gh variable set ENABLE_CLAUDE_REVIEW --body true    # enable on all PRs
+gh variable set ENABLE_CLAUDE_REVIEW --body false   # disable (or delete the variable)
+```
+Toggle in the UI under **Settings → Secrets and variables → Actions → Variables**.
+
+## Model
+Reviewer model is **Sonnet** by default (`REVIEW_MODEL`, read by `run_review.py`).
+Override repo-wide without code changes:
+```bash
+gh variable set REVIEW_MODEL --body opus     # or haiku, or a full model id
+```
+
 ## Setup
 - Repo secret **`ANTHROPIC_API_KEY`** — used by `claude -p`.
 - `GITHUB_TOKEN` (auto-provided) with `pull-requests: write` — used to post comments.
+- Repo variable **`ENABLE_CLAUDE_REVIEW=true`** to turn the review on (see above).
 
 ## Local dry run
 ```bash

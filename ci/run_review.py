@@ -11,6 +11,7 @@ the CI job never hangs waiting for input.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -18,6 +19,10 @@ from pathlib import Path
 
 SCHEMA_PATH = Path(__file__).with_name("review_schema.json")
 CRITERIA_REF = ".claude/standards/review-criteria.md"
+
+# Reviewer model — Sonnet by default (fast/cheaper than Opus, ample for diff review).
+# Override per-environment with REVIEW_MODEL (e.g. "opus", "haiku", or a full model id).
+REVIEW_MODEL = os.environ.get("REVIEW_MODEL", "sonnet")
 
 # Correctness review targets source code; reviewing docs/yaml/json for "bugs" is
 # noise and burns CI time. Keep to Python.
@@ -120,6 +125,7 @@ def build_command(prompt: str) -> list[str]:
     """
     return [
         "claude", "-p", prompt,
+        "--model", REVIEW_MODEL,
         "--output-format", "json",
         "--permission-mode", "bypassPermissions",
         "--max-turns", "1",

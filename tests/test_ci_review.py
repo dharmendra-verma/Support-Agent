@@ -92,6 +92,8 @@ def test_build_command_is_noninteractive_and_headless():
     assert "--max-turns" in cmd
     # --json-schema hangs this CLI; the JSON shape is specified in the prompt instead
     assert "--json-schema" not in cmd
+    # reviewer model is Sonnet by default (overridable via REVIEW_MODEL)
+    assert "--model" in cmd and "sonnet" in cmd
 
 
 def test_parse_review_output_extracts_findings_from_envelope():
