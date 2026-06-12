@@ -33,8 +33,20 @@ def test_backend_unknown_customer_and_order_raise():
         b.get_order("0000")
 
 
-def test_backend_order_id_tolerates_hash():
-    assert Backend.seeded().get_order("#12345")["status"] == "shipped"
+def test_backend_order_id_tolerates_hash_and_leading_space():
+    b = Backend.seeded()
+    assert b.get_order("#12345")["status"] == "shipped"
+    assert b.get_order(" #12345 ")["status"] == "shipped"  # space before '#' too
+
+
+def test_over_limit_refund_is_not_persisted():
+    """Over-limit refunds need human approval and must NOT be recorded (no double-refund)."""
+    b = Backend.seeded()
+    over = b.record_refund("12345", 999.0, "big")
+    assert over["auto_approved"] is False
+    assert b.refunds == []  # nothing persisted until approved
+    b.record_refund("12345", 40.0, "small")
+    assert len(b.refunds) == 1  # auto-approved one is recorded
 
 
 # --- handlers (structured results) ------------------------------------------

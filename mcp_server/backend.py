@@ -52,18 +52,21 @@ class Backend:
 
     def get_order(self, order_id: str) -> dict:
         """By order number; a leading '#' and surrounding space are tolerated."""
-        oid = order_id.lstrip("#").strip()
+        oid = order_id.strip().lstrip("#").strip()  # outer space, then '#', then any space
         if oid in self.orders:
             return self.orders[oid]
         raise NotFoundError(f"no order with id {order_id!r}")
 
     def record_refund(self, order_id: str, amount: float, reason: str) -> dict:
         order = self.get_order(order_id)  # raises NotFoundError on bad order
-        rec = {
-            "order_id": order["order_id"], "amount": amount, "reason": reason,
-            "auto_approved": amount <= REFUND_AUTO_APPROVE_LIMIT,
-        }
-        self.refunds.append(rec)
+        auto = amount <= REFUND_AUTO_APPROVE_LIMIT
+        rec = {"order_id": order["order_id"], "amount": amount, "reason": reason,
+               "auto_approved": auto}
+        # Persist only auto-approved refunds. Over-limit ones are NOT recorded here —
+        # they need a human (escalate_to_human / SA-14), and recording them now would
+        # risk a double-refund when that approval later executes.
+        if auto:
+            self.refunds.append(rec)
         return rec
 
     def record_escalation(self, reason: str, context: str) -> dict:
