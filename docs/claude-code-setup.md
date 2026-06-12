@@ -50,30 +50,51 @@ file type spans directories. Path rules solve this with YAML frontmatter globs:
 A rule loads **only** when the files you're editing match its globs — so MCP conventions
 don't clutter context while you edit the loop, and vice versa.
 
-## 4. Verifying with `/memory`
+## 4. Verifying what loads — `/memory` vs. the `InstructionsLoaded` hook
 
-Run this in an **interactive Claude Code session opened at the repo root**:
+### Documented behavior (official docs)
+- **Trigger:** path-scoped rules load **when Claude *reads* a file matching the `paths:`
+  glob** — a `Read` is enough; you do **not** need to edit the file. ("Path-scoped rules
+  trigger when Claude reads files matching the pattern, not on every tool use.")
+- **`@import` + startup files** load at session start. **Nested `CLAUDE.md`** (e.g.
+  `tests/CLAUDE.md`) loads on-demand when Claude reads a file in that subtree.
+- **`/memory` lists only what has *already* loaded this session** — it's a state display,
+  not a predictor. So a rule shows up only *after* a matching file has been read.
 
-1. `/memory` — lists every loaded memory file and its level. Expect: project `CLAUDE.md`
-   plus the three `@import`ed standards modules.
-2. Open a test file (e.g. `tests/test_loop.py`) and re-check `/memory` →
-   `.claude/rules/testing.md` should now be listed; `mcp-conventions.md` should **not**.
-3. Open `src/agent/tools.py` → `mcp-conventions.md` loads; `testing.md` drops off.
-4. Work under `tests/` → `tests/CLAUDE.md` (directory override) is present alongside the
-   project file.
+### `/memory` proved unreliable here — use the hook
+In testing, a successful `Read tests/test_loop.py` did **not** surface
+`.claude/rules/testing.md` in `/memory`. Per the docs, the authoritative way to see what
+loads (and *why*) is the **`InstructionsLoaded` hook**, which fires with a `load_reason`
+of `session_start | include | nested_traversal | path_glob_match | compact`.
+
+This repo ships that hook (`.claude/settings.json` → `.claude/hooks/log_instructions.py`),
+which appends every load event to `.claude/instructions-loaded.log` (gitignored).
+
+**Procedure (run at the repo root):**
+1. Start a **fresh** `claude` session (hooks load at startup, so a new session is required
+   after pulling these settings).
+2. Open `.claude/instructions-loaded.log`. It should already contain `session_start` /
+   `include` lines for `CLAUDE.md` and the three standards — that confirms the hook itself
+   works. **If the log is empty, the `InstructionsLoaded` event isn't supported in your
+   Claude Code version** (record that and rely on nested `CLAUDE.md` instead — see §5).
+3. Ask Claude to `Read tests/test_loop.py`. Re-open the log → expect a line for
+   `.claude/rules/testing.md` with `load_reason: path_glob_match`, and `tests/CLAUDE.md`
+   with `nested_traversal`.
+4. Ask Claude to `Read src/agent/tools.py` → expect `.claude/rules/mcp-conventions.md`
+   with `path_glob_match`.
 
 ### Findings log
-Record observed behavior here when the live check is run (template):
-
 | Check | Expected | Observed | ✓/✗ |
 |---|---|---|---|
-| Base session loads project + 3 standards | yes | _(pending interactive run)_ | |
-| Editing `test_*.py` loads `testing.md` only | yes | _(pending)_ | |
-| Editing `tools.py` loads `mcp-conventions.md` only | yes | _(pending)_ | |
-| `tests/CLAUDE.md` overrides project under `tests/` | yes | _(pending)_ | |
+| Startup loads project `CLAUDE.md` + 3 standards | `session_start`/`include` lines | _(fill from log)_ | |
+| Reading `tests/test_loop.py` loads `testing.md` | `path_glob_match` | _(fill)_ | |
+| Reading `tests/…` loads `tests/CLAUDE.md` | `nested_traversal` | _(fill)_ | |
+| Reading `src/agent/tools.py` loads `mcp-conventions.md` | `path_glob_match` | _(fill)_ | |
+| `/memory` lists the above after they load | listed | _(fill)_ | |
 
-> Note: the table is pre-filled with the documented hierarchy behavior; the **Observed**
-> column must be completed from an actual `/memory` run before this story's AC is signed off.
+> Observed note (2026-06-12): `/memory` did **not** display `testing.md` after a confirmed
+> `Read` of `tests/test_loop.py`. The hook log is the source of truth; complete the Observed
+> column from `.claude/instructions-loaded.log`.
 
 ## 5. Precedence / risk notes
 - When a directory `CLAUDE.md` and a path rule both match, both load; treat the
