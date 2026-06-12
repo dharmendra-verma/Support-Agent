@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent.loop import IterationCapError, MaxTokensError, run_agent
+from agent.loop import IterationCapError, MaxTokensError, UnknownToolError, run_agent
 from agent.tools import Tool, ToolRegistry
 
 
@@ -64,6 +64,30 @@ class AlwaysToolUseClient:
         return Resp("tool_use", [tool_use(f"t{self.calls}", "noop", {})], Usage(1, 1))
 
 
+class EchoToolResultClient:
+    """The final answer is DERIVED from the tool_result the loop fed back into
+    history — so the test only passes if the prior tool output is genuinely
+    visible on the next request (real context accumulation, not a passthrough)."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def create(self, *, messages, tools, system=None):
+        self.calls += 1
+        for message in messages:
+            content = message.get("content")
+            if message["role"] == "user" and isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "tool_result":
+                        # Answer depends on what the tool returned last turn.
+                        return Resp(
+                            "end_turn",
+                            [text(f"the answer is {block['content']}")],
+                            Usage(1, 1),
+                        )
+        return Resp("tool_use", [tool_use("t1", "lookup", {})], Usage(1, 1))
+
+
 def registry_with(name="lookup", output="OK") -> ToolRegistry:
     reg = ToolRegistry()
     reg.register(
@@ -105,16 +129,33 @@ def test_continues_on_tool_use_then_ends():
 
 
 def test_tool_result_is_visible_next_iteration():
-    """The answer depends on a prior tool result -> it must reach the next request."""
+    """The final answer is computed FROM a prior tool result (real visibility)."""
+    client = EchoToolResultClient()
+    out, _ = run_agent(client=client, registry=registry_with(output="42"), user_message="q")
+    assert out == "the answer is 42"  # answer depends on the tool's output
+    assert client.calls == 2  # tool turn, then the answer derived from its result
+
+
+def test_does_not_parse_prose_to_terminate():
+    """Prose saying 'done' while stop_reason==tool_use must NOT end the loop.
+
+    Guards the central SA-8 anti-pattern: termination is driven by stop_reason
+    alone. A regression like `if "done" in text: return` would terminate on the
+    first turn (1 call, wrong answer) and fail this test.
+    """
     client = FakeClient(
         [
-            Resp("tool_use", [tool_use("t1", "lookup", {})], Usage(1, 1)),
-            Resp("end_turn", [text("the sky is blue")], Usage(1, 1)),
+            Resp(
+                "tool_use",
+                [text("All done! I have finished."), tool_use("t1", "lookup", {})],
+                Usage(1, 1),
+            ),
+            Resp("end_turn", [text("real answer")], Usage(1, 1)),
         ]
     )
-    run_agent(client=client, registry=registry_with(output="blue"), user_message="color?")
-    tool_result = client.calls[1]["messages"][-1]["content"][0]
-    assert tool_result["content"] == "blue"  # the tool's output is visible on re-send
+    out, _ = run_agent(client=client, registry=registry_with(), user_message="q")
+    assert out == "real answer"
+    assert len(client.calls) == 2  # continued past the 'done' prose
 
 
 def test_parallel_tool_use_blocks_all_handled():
@@ -138,6 +179,14 @@ def test_max_tokens_raises():
     client = FakeClient([Resp("max_tokens", [text("truncat")], Usage(1, 1))])
     with pytest.raises(MaxTokensError):
         run_agent(client=client, registry=ToolRegistry(), user_message="hi")
+
+
+def test_unknown_tool_fails_fast():
+    """A tool_use for an unregistered tool raises immediately, not a silent loop."""
+    client = FakeClient([Resp("tool_use", [tool_use("t1", "ghost", {})], Usage(1, 1))])
+    with pytest.raises(UnknownToolError):
+        run_agent(client=client, registry=registry_with(name="lookup"), user_message="q")
+    assert len(client.calls) == 1  # failed fast on the first turn
 
 
 def test_iteration_cap_is_safety_net():

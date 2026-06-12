@@ -37,6 +37,10 @@ class IterationCapError(RuntimeError):
     """Safety-net trip: loop exceeded its configured iteration cap."""
 
 
+class UnknownToolError(RuntimeError):
+    """The model requested a tool that is not in the registry (config/registry drift)."""
+
+
 def _text_of(content: Any) -> str:
     """Concatenate the text blocks of an assistant response."""
     parts = [
@@ -63,9 +67,10 @@ def run_agent(
     """
     usage = usage or Usage()
     messages: list[dict[str, Any]] = [{"role": "user", "content": user_message}]
+    tool_schemas = registry.schemas()  # immutable for the run; build once
 
     for _ in range(max_iterations):
-        resp = client.create(messages=messages, tools=registry.schemas(), system=system)
+        resp = client.create(messages=messages, tools=tool_schemas, system=system)
 
         # Cumulative token usage per conversation (authoritative tally).
         turn_usage = getattr(resp, "usage", None)
@@ -95,13 +100,18 @@ def run_agent(
             for block in resp.content:
                 if getattr(block, "type", None) != "tool_use":
                     continue
+                if block.name not in registry:
+                    # Registry/config drift is a programming bug — fail fast rather
+                    # than feeding a fabricated error back to the model and burning
+                    # iterations up to the safety-net cap.
+                    raise UnknownToolError(f"model requested unregistered tool: {block.name!r}")
                 result_block: dict[str, Any] = {
                     "type": "tool_result",
                     "tool_use_id": block.id,
                 }
                 try:
                     result_block["content"] = registry.dispatch(block.name, block.input)
-                except Exception as exc:  # surface tool failure to the model, don't crash
+                except Exception as exc:  # genuine tool runtime failure -> surface to model
                     result_block["content"] = f"error: {exc}"
                     result_block["is_error"] = True
                 tool_results.append(result_block)

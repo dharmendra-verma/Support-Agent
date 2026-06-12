@@ -99,6 +99,17 @@ def test_max_turns_is_the_cap():
     )
     assert result.num_turns == 3
     assert result.is_error is True
+    # The authoritative empty result wins — assistant prose ("turn 1/2/3") must
+    # NOT be stitched in as the answer on a capped/errored run.
+    assert result.text == ""
+
+
+def test_empty_result_does_not_fall_back_to_prose():
+    """An empty ResultMessage.result is authoritative; prose is never surfaced."""
+    result = run(
+        [AssistantMessage("intermediate chatter"), ResultMessage(result="", is_error=True)]
+    )
+    assert result.text == ""
 
 
 def test_result_message_drives_termination():

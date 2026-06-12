@@ -17,7 +17,7 @@ SA-8 scaffold: structure/signatures are final; bodies land during the story.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Callable
 
 
@@ -31,6 +31,9 @@ class AgentResult:
     cost_usd: float = 0.0
     num_turns: int = 0
     is_error: bool = False
+    # True once a ResultMessage supplied an authoritative ``result`` (even ""),
+    # so the prose fallback in run_support_agent stays off for completed runs.
+    final_from_result: bool = field(default=False, repr=False, compare=False)
 
     @property
     def total_tokens(self) -> int:
@@ -97,9 +100,14 @@ def _consume(message: Any, result: AgentResult, text_parts: list[str]) -> None:
         if isinstance(usage, dict):
             result.input_tokens = int(usage.get("input_tokens", 0) or 0)
             result.output_tokens = int(usage.get("output_tokens", 0) or 0)
+        # `is not None`, not truthiness: an intentional empty result ("") is the
+        # authoritative answer (e.g. an errored/capped run) and must NOT trigger
+        # the assistant-prose fallback — surfacing prose would parse output we
+        # explicitly never parse to decide the outcome.
         final = getattr(message, "result", None)
-        if final:
+        if final is not None:
             result.text = final
+            result.final_from_result = True
 
 
 async def run_support_agent(
@@ -125,7 +133,8 @@ async def run_support_agent(
     async for message in runner(prompt=prompt, options=options):
         _consume(message, result, text_parts)
 
-    # ResultMessage.result wins; otherwise stitch the streamed assistant text.
-    if not result.text:
+    # ResultMessage.result is authoritative (even when empty). Only stitch the
+    # streamed assistant text when no ResultMessage supplied a result at all.
+    if not result.final_from_result:
         result.text = "".join(text_parts)
     return result

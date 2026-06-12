@@ -3,11 +3,12 @@
 Kept separate from loop.py so the loop can be unit-tested against a fake client
 (no network) — see tests/test_loop.py.
 
-SA-8 scaffold: signatures are final; bodies are implemented during the story.
+Token accounting lives entirely in loop.run_agent (the single per-conversation
+tally); this module only issues requests.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 
@@ -42,15 +43,16 @@ class MessagesClient(Protocol):
 
 @dataclass
 class AnthropicClient:
-    """Real client backed by the ``anthropic`` SDK. Tracks cumulative usage.
+    """Real client backed by the ``anthropic`` SDK.
 
     Used by the direct-API reference loop (``loop.py``). The SDK client is built
-    lazily so importing this module never requires an API key.
+    lazily so importing this module never requires an API key. Token accounting is
+    owned solely by ``loop.run_agent`` (the single source of truth per conversation);
+    this client does not keep a separate tally, avoiding divergent/double counts.
     """
 
     model: str
     max_tokens: int = 4096
-    usage: Usage = field(default_factory=Usage)
     _sdk: Any = None  # anthropic.Anthropic(), constructed lazily
 
     def _client(self) -> Any:
@@ -75,8 +77,5 @@ class AnthropicClient:
         }
         if system is not None:
             kwargs["system"] = system
-        resp = self._client().messages.create(**kwargs)
-        # Record this turn's usage on the client's own running tally. The loop
-        # keeps the authoritative per-conversation total (see loop.run_agent).
-        self.usage.add(resp.usage.input_tokens, resp.usage.output_tokens)
-        return resp
+        # Usage is accumulated by loop.run_agent from resp.usage — not here.
+        return self._client().messages.create(**kwargs)

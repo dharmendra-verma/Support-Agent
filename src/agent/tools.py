@@ -36,6 +36,9 @@ class ToolRegistry:
             raise ValueError(f"tool already registered: {tool.name}")
         self._tools[tool.name] = tool
 
+    def __contains__(self, name: object) -> bool:
+        return name in self._tools
+
     def schemas(self) -> list[dict[str, Any]]:
         """The ``tools`` array passed to the Messages API."""
         return [
