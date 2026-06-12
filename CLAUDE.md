@@ -15,6 +15,7 @@ Keep it lean — detailed standards live in the imported modules below.
 @.claude/standards/python-style.md
 @.claude/standards/agent-architecture.md
 @.claude/standards/git-workflow.md
+@.claude/standards/review-criteria.md
 
 ## Memory hierarchy (precedence: most-specific wins)
 1. **Enterprise/user** (`~/.claude/CLAUDE.md`) — personal, **NOT shared via git**.
