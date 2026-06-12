@@ -3,6 +3,11 @@
 A Tool bundles the JSON schema sent to the model with the Python handler that
 executes it. The loop looks tools up by name when it sees a ``tool_use`` block.
 
+A single handler can be exposed two ways: through this ``ToolRegistry`` for the
+direct-API reference loop (``loop.py``), and adapted to a ``@tool`` /
+``create_sdk_mcp_server`` in-process server for the Agent SDK (``sdk_agent.py``).
+Define the handler once; the real MCP tools land in SA-10.
+
 SA-8 scaffold — handler bodies are filled in per story; the registry contract
 below is what ``loop.py`` depends on.
 """
@@ -30,6 +35,9 @@ class ToolRegistry:
         if tool.name in self._tools:
             raise ValueError(f"tool already registered: {tool.name}")
         self._tools[tool.name] = tool
+
+    def __contains__(self, name: object) -> bool:
+        return name in self._tools
 
     def schemas(self) -> list[dict[str, Any]]:
         """The ``tools`` array passed to the Messages API."""

@@ -7,17 +7,23 @@ CCA-F practice application — Jira project [SUPPORT AGENT (SA)](https://project
 
 ## Stack
 - Python 3.11+
-- `anthropic` (Messages API), `pydantic`
-- `pytest` for tests
+- `claude-agent-sdk` — agentic harness (owns the loop, in-process MCP tools)
+- `anthropic` (Messages API) — direct/single-shot calls + the reference loop
+- `pydantic`; `pytest` for tests
+
+**Architecture rule:** agentic work runs through the Claude Agent SDK; the direct
+Claude API is used wherever a call isn't agentic (and for the reference loop below).
 
 ## Layout
 ```
 src/agent/
-  client.py   # thin Anthropic Messages API wrapper + usage accounting
-  loop.py     # agentic loop: dispatch on stop_reason, accumulate context
-  tools.py    # tool registry pattern (name -> schema + handler)
+  sdk_agent.py  # PRODUCTION harness on the Claude Agent SDK (query/ClaudeSDKClient)
+  loop.py       # direct Messages-API reference loop: raw stop_reason control flow
+  client.py     # thin anthropic wrapper + cumulative usage (used by the ref loop)
+  tools.py      # tool registry; one handler -> ref loop AND SDK @tool server
 tests/
-  test_loop.py
+  test_sdk_agent.py  # asserts on what the SDK surfaces (text, usage, turns)
+  test_loop.py       # raw loop termination paths
 ```
 
 ## Setup

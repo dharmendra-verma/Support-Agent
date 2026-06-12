@@ -5,7 +5,8 @@ description = "ResolveDesk — autonomous customer-support resolution agent (CCA
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "anthropic>=0.40",
+    "claude-agent-sdk>=0.1",  # agentic harness: runs the loop, in-process MCP tools
+    "anthropic>=0.40",        # direct Messages API for non-agentic / single-shot calls
     "pydantic>=2.7",
 ]
 
