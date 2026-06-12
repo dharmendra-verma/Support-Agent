@@ -87,8 +87,10 @@ def test_build_command_is_noninteractive_and_headless():
     assert cmd[:2] == ["claude", "-p"]
     assert "--output-format" in cmd and "json" in cmd
     assert "--json-schema" in cmd
-    # bypassPermissions is what stops CI hangs on tool-approval prompts
+    # bypassPermissions stops CI hangs on tool-approval prompts; max-turns 1 keeps
+    # the call to a single direct answer from the diff (no slow tool exploration)
     assert "--permission-mode" in cmd and "bypassPermissions" in cmd
+    assert "--max-turns" in cmd
 
 
 def test_file_prompt_embeds_diff_and_criteria():

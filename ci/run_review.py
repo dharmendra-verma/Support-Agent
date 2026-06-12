@@ -114,6 +114,7 @@ def build_command(prompt: str, schema_path: Path = SCHEMA_PATH) -> list[str]:
         "claude", "-p", prompt,
         "--output-format", "json",
         "--permission-mode", "bypassPermissions",
+        "--max-turns", "1",  # answer directly from the diff; no multi-turn tool exploration
     ]
     if schema_path is not None:
         cmd += ["--json-schema", str(schema_path)]
