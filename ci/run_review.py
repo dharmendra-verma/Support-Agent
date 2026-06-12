@@ -37,6 +37,22 @@ def changed_files(base: str, head: str) -> list[str]:
     return [p for p in out.splitlines() if p.endswith(CODE_SUFFIXES)]
 
 
+def file_diff(base: str, head: str, path: str) -> str:
+    """Unified diff for one file — embedded in the prompt so the reviewer needs no tools."""
+    return subprocess.run(
+        ["git", "diff", f"{base}...{head}", "--", path],
+        capture_output=True, text=True, check=True,
+    ).stdout
+
+
+def full_diff(base: str, head: str, paths: list[str]) -> str:
+    """Combined diff for the integration pass."""
+    return subprocess.run(
+        ["git", "diff", f"{base}...{head}", "--", *paths],
+        capture_output=True, text=True, check=True,
+    ).stdout
+
+
 def _criteria_clause() -> str:
     return (
         f"Apply the review criteria in {CRITERIA_REF}: REPORT only bug, security, "
@@ -47,19 +63,26 @@ def _criteria_clause() -> str:
     )
 
 
-def build_file_prompt(path: str) -> str:
+_NO_TOOLS = (
+    "Analyze ONLY the unified diff below — do not use any tools (no Read/Bash/etc.); "
+    "everything you need is in the diff."
+)
+
+
+def build_file_prompt(path: str, diff: str) -> str:
     return (
-        f"Review the changes to `{path}` in this PR for correctness defects only.\n\n"
-        f"{_criteria_clause()}"
+        f"Review the changes to `{path}` for correctness defects only. {_NO_TOOLS}\n\n"
+        f"{_criteria_clause()}\n\n```diff\n{diff}\n```"
     )
 
 
-def build_integration_prompt(paths: list[str]) -> str:
+def build_integration_prompt(paths: list[str], diff: str) -> str:
     listed = ", ".join(f"`{p}`" for p in paths) or "(none)"
     return (
-        "Integration pass: review how the changed files interact — broken call sites, "
-        "changed return shapes, ordering/timing dependencies, and contracts that span "
-        f"files. Changed files: {listed}.\n\n{_criteria_clause()}"
+        "Integration pass: from the combined diff below, review how the changed files "
+        "interact — broken call sites, changed return shapes, ordering/timing "
+        f"dependencies, and contracts that span files. Changed files: {listed}. "
+        f"{_NO_TOOLS}\n\n{_criteria_clause()}\n\n```diff\n{diff}\n```"
     )
 
 
@@ -74,17 +97,42 @@ def build_testgen_prompt(path: str, existing_test_files: list[str]) -> str:
     )
 
 
+# Seconds a single review call may run before we give up on it (and skip that pass)
+# rather than letting one stuck call hang the whole CI job.
+CALL_TIMEOUT_S = 240
+
+
 def build_command(prompt: str, schema_path: Path = SCHEMA_PATH) -> list[str]:
-    """The non-interactive reviewer invocation. `-p` = print mode (no REPL → no hang)."""
-    cmd = ["claude", "-p", prompt, "--output-format", "json"]
+    """The non-interactive reviewer invocation.
+
+    `-p` = print mode (no REPL). `--permission-mode bypassPermissions` is essential in
+    CI: without it, any tool use blocks on an approval prompt that never comes and the
+    job hangs to the timeout. Combined with the diff-in-prompt design, the reviewer
+    needs no tools at all.
+    """
+    cmd = [
+        "claude", "-p", prompt,
+        "--output-format", "json",
+        "--permission-mode", "bypassPermissions",
+    ]
     if schema_path is not None:
         cmd += ["--json-schema", str(schema_path)]
     return cmd
 
 
 def run_claude(prompt: str, schema_path: Path = SCHEMA_PATH) -> dict:
-    """Invoke the reviewer and parse its JSON. Isolated so tests don't spawn the CLI."""
-    proc = subprocess.run(build_command(prompt, schema_path), capture_output=True, text=True)
+    """Invoke the reviewer and parse its JSON. Isolated so tests don't spawn the CLI.
+
+    A stuck call is bounded by CALL_TIMEOUT_S and treated as 'no findings' so it can't
+    sink the whole job."""
+    try:
+        proc = subprocess.run(
+            build_command(prompt, schema_path),
+            capture_output=True, text=True, timeout=CALL_TIMEOUT_S,
+        )
+    except subprocess.TimeoutExpired:
+        print(f"warning: review call timed out after {CALL_TIMEOUT_S}s; skipping", file=sys.stderr)
+        return {"findings": []}
     if proc.returncode != 0:
         raise RuntimeError(f"claude review failed ({proc.returncode}): {proc.stderr.strip()}")
     return json.loads(proc.stdout)
@@ -105,8 +153,8 @@ def collect_findings(base: str, head: str, runner=run_claude, max_workers: int =
     timeout. `runner` is injectable for offline tests.
     """
     files = changed_files(base, head)
-    prompts = [build_file_prompt(p) for p in files]
-    prompts.append(build_integration_prompt(files))
+    prompts = [build_file_prompt(p, file_diff(base, head, p)) for p in files]
+    prompts.append(build_integration_prompt(files, full_diff(base, head, files)))
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         results = list(pool.map(runner, prompts))
     return merge_findings(results)

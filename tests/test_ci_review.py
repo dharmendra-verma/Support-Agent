@@ -82,24 +82,29 @@ def test_load_findings_accepts_both_shapes():
 # --- run_review -------------------------------------------------------------
 
 
-def test_build_command_is_noninteractive_json():
+def test_build_command_is_noninteractive_and_headless():
     cmd = rr.build_command("review please", schema_path="ci/review_schema.json")
     assert cmd[:2] == ["claude", "-p"]
     assert "--output-format" in cmd and "json" in cmd
     assert "--json-schema" in cmd
+    # bypassPermissions is what stops CI hangs on tool-approval prompts
+    assert "--permission-mode" in cmd and "bypassPermissions" in cmd
 
 
-def test_file_prompt_carries_criteria():
-    p = rr.build_file_prompt("src/agent/loop.py")
+def test_file_prompt_embeds_diff_and_criteria():
+    p = rr.build_file_prompt("src/agent/loop.py", "@@ -1 +1 @@\n-old\n+new")
     assert "src/agent/loop.py" in p
     assert "review-criteria.md" in p
     assert "detected_pattern" in p
+    assert "+new" in p  # diff embedded → reviewer needs no tools
+    assert "do not use any tools" in p.lower()
 
 
-def test_integration_prompt_is_cross_file():
-    p = rr.build_integration_prompt(["a.py", "b.py"])
+def test_integration_prompt_is_cross_file_with_diff():
+    p = rr.build_integration_prompt(["a.py", "b.py"], "DIFFBODY")
     assert "a.py" in p and "b.py" in p
     assert "interact" in p.lower() or "span" in p.lower()
+    assert "DIFFBODY" in p
 
 
 def test_testgen_prompt_avoids_duplication():
@@ -111,6 +116,8 @@ def test_testgen_prompt_avoids_duplication():
 
 def test_collect_findings_runs_per_file_plus_integration(monkeypatch):
     monkeypatch.setattr(rr, "changed_files", lambda base, head: ["a.py", "b.py"])
+    monkeypatch.setattr(rr, "file_diff", lambda base, head, path: f"diff {path}")
+    monkeypatch.setattr(rr, "full_diff", lambda base, head, paths: "full diff")
     calls = []
 
     def fake_runner(prompt):
