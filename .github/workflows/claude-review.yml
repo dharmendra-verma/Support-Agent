@@ -1,7 +1,11 @@
 name: Claude PR Review
 
-# Independent review instance: runs on every PR, separate from any session that
-# generated the code. `claude -p` is non-interactive so the job can't hang.
+# Independent review instance, separate from any session that generated the code.
+# `claude -p` is non-interactive so the job can't hang.
+#
+# OPT-IN: this only runs when the repo variable ENABLE_CLAUDE_REVIEW == 'true'.
+#   Enable:  gh variable set ENABLE_CLAUDE_REVIEW --body true
+#   Disable: gh variable set ENABLE_CLAUDE_REVIEW --body false   (or delete it)
 on:
   pull_request:
     types: [opened, synchronize, reopened]
@@ -12,6 +16,8 @@ permissions:
 
 jobs:
   review:
+    # Global on/off flag — skipped entirely unless the variable is set to 'true'.
+    if: ${{ vars.ENABLE_CLAUDE_REVIEW == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20  # hard stop; per-file passes run concurrently to stay well under this
     steps:
@@ -29,6 +35,9 @@ jobs:
       - name: Run review (per-file + integration pass)
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Reviewer model — Sonnet by default; override repo-wide by setting the
+          # REVIEW_MODEL variable (gh variable set REVIEW_MODEL --body opus).
+          REVIEW_MODEL: ${{ vars.REVIEW_MODEL || 'sonnet' }}
         run: |
           python ci/run_review.py \
             "origin/${{ github.base_ref }}" \
