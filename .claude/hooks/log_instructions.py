@@ -10,7 +10,9 @@ nested_traversal, path_glob_match, compact).
 The hook event arrives as JSON on stdin. We log the whole event verbatim so the
 record is correct regardless of field-name changes across versions.
 
-To disable: remove the InstructionsLoaded entry from .claude/settings.json.
+To disable: remove the InstructionsLoaded entry from .claude/settings.local.json
+(the personal, gitignored file where this hook is registered — see
+docs/claude-code-setup.md §4).
 """
 from __future__ import annotations
 
