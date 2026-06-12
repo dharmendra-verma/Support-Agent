@@ -59,7 +59,10 @@ def _criteria_clause() -> str:
         "correctness-test, and breaking-change findings; SKIP style/nit/subjective "
         "(ruff and humans own those). Default to NOT reporting when unsure — a false "
         "positive is worse than a miss. Each finding needs a stable detected_pattern key. "
-        "Return JSON matching ci/review_schema.json; return an empty findings array if clean."
+        'Return ONLY a JSON object, no prose and no markdown fences, of the form: '
+        '{"findings": [{"file": str, "line": int, "category": str, "severity": str, '
+        '"issue": str, "suggested_fix": str, "detected_pattern": str}]}. '
+        "Use an empty findings array if there are no issues."
     )
 
 
@@ -102,33 +105,46 @@ def build_testgen_prompt(path: str, existing_test_files: list[str]) -> str:
 CALL_TIMEOUT_S = 120
 
 
-def build_command(prompt: str, schema_path: Path = SCHEMA_PATH) -> list[str]:
+def build_command(prompt: str) -> list[str]:
     """The non-interactive reviewer invocation.
 
-    `-p` = print mode (no REPL). `--permission-mode bypassPermissions` is essential in
-    CI: without it, any tool use blocks on an approval prompt that never comes and the
-    job hangs to the timeout. Combined with the diff-in-prompt design, the reviewer
-    needs no tools at all.
+    `-p` = print mode (no REPL). `--permission-mode bypassPermissions` keeps tool use
+    from blocking on an approval prompt; `--max-turns 1` forces a direct answer from the
+    diff in the prompt. We deliberately do NOT pass `--json-schema` — on this CLI it hangs
+    the call; the JSON shape is specified in the prompt instead.
     """
-    cmd = [
+    return [
         "claude", "-p", prompt,
         "--output-format", "json",
         "--permission-mode", "bypassPermissions",
-        "--max-turns", "1",  # answer directly from the diff; no multi-turn tool exploration
+        "--max-turns", "1",
     ]
-    if schema_path is not None:
-        cmd += ["--json-schema", str(schema_path)]
-    return cmd
 
 
-def run_claude(prompt: str, schema_path: Path = SCHEMA_PATH) -> dict:
-    """Invoke the reviewer and parse its JSON. Isolated so tests don't spawn the CLI.
+def parse_review_output(stdout: str) -> dict:
+    """`--output-format json` wraps the model's answer in a result envelope; the findings
+    JSON we want is the string in `.result`. Extract it, strip any markdown fences, parse."""
+    envelope = json.loads(stdout)
+    text = envelope.get("result", "") if isinstance(envelope, dict) else ""
+    text = (text or "").strip()
+    if text.startswith("```"):
+        # drop the opening ```lang line and the closing ``` fence
+        text = text.split("\n", 1)[1] if "\n" in text else ""
+        text = text.rsplit("```", 1)[0].strip()
+    if not text:
+        return {"findings": []}
+    data = json.loads(text)
+    return {"findings": data} if isinstance(data, list) else data
+
+
+def run_claude(prompt: str) -> dict:
+    """Invoke the reviewer and parse its findings. Isolated so tests don't spawn the CLI.
 
     A stuck call is bounded by CALL_TIMEOUT_S and treated as 'no findings' so it can't
     sink the whole job."""
     try:
         proc = subprocess.run(
-            build_command(prompt, schema_path),
+            build_command(prompt),
             capture_output=True, text=True, timeout=CALL_TIMEOUT_S,
             stdin=subprocess.DEVNULL,  # CI has no TTY — never block waiting on stdin/prompts
         )
@@ -142,7 +158,7 @@ def run_claude(prompt: str, schema_path: Path = SCHEMA_PATH) -> dict:
         return {"findings": []}
     if proc.returncode != 0:
         raise RuntimeError(f"claude review failed ({proc.returncode}): {proc.stderr.strip()}")
-    return json.loads(proc.stdout)
+    return parse_review_output(proc.stdout)
 
 
 def merge_findings(results: list[dict]) -> dict:

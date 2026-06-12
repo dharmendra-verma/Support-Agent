@@ -26,16 +26,6 @@ jobs:
       - name: Install Claude Code CLI
         run: npm install -g @anthropic-ai/claude-code
 
-      - name: Claude smoke test (diagnostic)
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: |
-          echo "version:"; claude --version || echo "version FAILED"
-          echo "--- trivial claude -p (90s cap) ---"
-          timeout 90 claude -p 'Reply with the JSON {"ok":true} only.' \
-            --output-format json --permission-mode bypassPermissions --max-turns 1 < /dev/null
-          echo "trivial exit=$?"
-
       - name: Run review (per-file + integration pass)
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

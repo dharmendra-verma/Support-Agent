@@ -83,14 +83,30 @@ def test_load_findings_accepts_both_shapes():
 
 
 def test_build_command_is_noninteractive_and_headless():
-    cmd = rr.build_command("review please", schema_path="ci/review_schema.json")
+    cmd = rr.build_command("review please")
     assert cmd[:2] == ["claude", "-p"]
     assert "--output-format" in cmd and "json" in cmd
-    assert "--json-schema" in cmd
     # bypassPermissions stops CI hangs on tool-approval prompts; max-turns 1 keeps
     # the call to a single direct answer from the diff (no slow tool exploration)
     assert "--permission-mode" in cmd and "bypassPermissions" in cmd
     assert "--max-turns" in cmd
+    # --json-schema hangs this CLI; the JSON shape is specified in the prompt instead
+    assert "--json-schema" not in cmd
+
+
+def test_parse_review_output_extracts_findings_from_envelope():
+    env = '{"type":"result","result":"{\\"findings\\": [{\\"file\\": \\"a.py\\"}]}"}'
+    assert rr.parse_review_output(env) == {"findings": [{"file": "a.py"}]}
+
+
+def test_parse_review_output_strips_markdown_fences():
+    env = '{"result":"```json\\n{\\"findings\\": []}\\n```"}'
+    assert rr.parse_review_output(env) == {"findings": []}
+
+
+def test_parse_review_output_wraps_bare_list_and_handles_empty():
+    assert rr.parse_review_output('{"result":"[{\\"file\\":\\"x\\"}]"}') == {"findings": [{"file": "x"}]}
+    assert rr.parse_review_output('{"result":""}') == {"findings": []}
 
 
 def test_file_prompt_embeds_diff_and_criteria():
