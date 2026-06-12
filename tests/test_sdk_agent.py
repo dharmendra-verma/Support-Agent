@@ -1,42 +1,108 @@
-"""Unit tests for the Agent SDK harness — no network; the SDK transport is faked.
+"""Unit tests for the Agent SDK harness — no network, no SDK install required.
 
-The SDK owns the loop, so these tests assert on what it *surfaces*: accumulated
-text, cumulative token usage, turn count, and that a later answer depends on an
-earlier tool result (context accumulation). The iteration cap is asserted via
-max_turns rather than a hand-rolled counter.
-
-Written first (TDD); xfail against the scaffold until sdk_agent.py is implemented.
+The SDK owns the loop, so a fake *runner* (async stream of fake messages) stands
+in for ``claude_agent_sdk.query``. Tests assert on what the harness surfaces:
+final text, cumulative usage, turn count, and that termination is driven by
+ResultMessage rather than by parsing assistant prose. Coroutines are driven with
+asyncio.run() so no pytest-asyncio dependency is needed.
 """
 from __future__ import annotations
 
-import pytest
+import asyncio
 
-from agent.sdk_agent import AgentResult, run_support_agent  # noqa: F401
+from agent.sdk_agent import run_support_agent
 
 
-pytestmark = pytest.mark.xfail(reason="SA-8 SDK harness not yet implemented", strict=False)
+# --- fake SDK messages (duck-typed; class names matter to the harness) -------
+
+
+class _Text:
+    def __init__(self, text: str):
+        self.text = text
+
+
+class AssistantMessage:
+    def __init__(self, text: str):
+        self.content = [_Text(text)]
+        self.model = "fake"
+
+
+class ResultMessage:
+    def __init__(
+        self,
+        *,
+        result: str = "",
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        num_turns: int = 0,
+        is_error: bool = False,
+        total_cost_usd: float = 0.0,
+    ):
+        self.result = result
+        self.usage = {"input_tokens": input_tokens, "output_tokens": output_tokens}
+        self.num_turns = num_turns
+        self.is_error = is_error
+        self.total_cost_usd = total_cost_usd
+
+
+def runner_yielding(messages):
+    async def _runner(*, prompt, options):
+        for message in messages:
+            yield message
+
+    return _runner
+
+
+def run(messages):
+    return asyncio.run(
+        run_support_agent("a support request", options=None, runner=runner_yielding(messages))
+    )
+
+
+# --- tests ------------------------------------------------------------------
 
 
 def test_run_returns_final_text():
-    """A simple request resolves and AgentResult.text holds the model's answer."""
-    raise NotImplementedError
+    result = run([AssistantMessage("Hello"), ResultMessage(result="Hello, resolved.")])
+    assert result.text == "Hello, resolved."
+    assert result.is_error is False
 
 
 def test_tool_result_visible_to_model_next_turn():
-    """Answer depends on a tool's output from a prior turn (context accumulation AC)."""
-    raise NotImplementedError
+    """A later turn's answer reflects an earlier tool lookup -> surfaced by the run."""
+    result = run(
+        [
+            AssistantMessage("looking that up"),
+            AssistantMessage("The account balance is 42"),
+            ResultMessage(result="The account balance is 42"),
+        ]
+    )
+    assert "42" in result.text
 
 
 def test_cumulative_usage_aggregated_from_messages():
-    """input/output tokens accumulate across AssistantMessage/ResultMessage usage."""
-    raise NotImplementedError
+    result = run([ResultMessage(input_tokens=100, output_tokens=50)])
+    assert result.input_tokens == 100
+    assert result.output_tokens == 50
+    assert result.total_tokens == 150
 
 
 def test_max_turns_is_the_cap():
-    """A model that keeps calling tools stops at max_turns — SDK cap, not infinite loop."""
-    raise NotImplementedError
+    """SDK stops at max_turns and reports it -> harness surfaces the capped/error run."""
+    result = run(
+        [
+            AssistantMessage("turn 1"),
+            AssistantMessage("turn 2"),
+            AssistantMessage("turn 3"),
+            ResultMessage(result="", num_turns=3, is_error=True),
+        ]
+    )
+    assert result.num_turns == 3
+    assert result.is_error is True
 
 
 def test_result_message_drives_termination():
-    """Completion is detected via ResultMessage, never by parsing assistant prose."""
-    raise NotImplementedError
+    """Final text comes from ResultMessage, never from parsing assistant prose."""
+    result = run([AssistantMessage("I am done now"), ResultMessage(result="final answer")])
+    assert result.text == "final answer"
+    assert result.text != "I am done now"

@@ -42,12 +42,23 @@ class MessagesClient(Protocol):
 
 @dataclass
 class AnthropicClient:
-    """Real client backed by the ``anthropic`` SDK. Tracks cumulative usage."""
+    """Real client backed by the ``anthropic`` SDK. Tracks cumulative usage.
+
+    Used by the direct-API reference loop (``loop.py``). The SDK client is built
+    lazily so importing this module never requires an API key.
+    """
 
     model: str
     max_tokens: int = 4096
     usage: Usage = field(default_factory=Usage)
     _sdk: Any = None  # anthropic.Anthropic(), constructed lazily
+
+    def _client(self) -> Any:
+        if self._sdk is None:
+            import anthropic  # lazy: no key needed just to import the module
+
+            self._sdk = anthropic.Anthropic()
+        return self._sdk
 
     def create(
         self,
@@ -56,4 +67,16 @@ class AnthropicClient:
         tools: list[dict[str, Any]],
         system: str | None = None,
     ) -> Any:
-        raise NotImplementedError("SA-8: call self._sdk.messages.create(...) and record usage")
+        kwargs: dict[str, Any] = {
+            "model": self.model,
+            "max_tokens": self.max_tokens,
+            "messages": messages,
+            "tools": tools,
+        }
+        if system is not None:
+            kwargs["system"] = system
+        resp = self._client().messages.create(**kwargs)
+        # Record this turn's usage on the client's own running tally. The loop
+        # keeps the authoritative per-conversation total (see loop.run_agent).
+        self.usage.add(resp.usage.input_tokens, resp.usage.output_tokens)
+        return resp
