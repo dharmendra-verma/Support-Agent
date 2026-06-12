@@ -145,3 +145,17 @@ def test_collect_findings_runs_per_file_plus_integration(monkeypatch):
     out = rr.collect_findings("main", "HEAD", runner=fake_runner)
     assert len(calls) == 3  # 2 files + 1 integration pass
     assert len(out["findings"]) == 3
+
+
+def test_collect_findings_no_files_skips_everything(monkeypatch):
+    """No in-scope files → no passes (and no empty-pathspec whole-repo diff)."""
+    monkeypatch.setattr(rr, "changed_files", lambda base, head: [])
+    calls = []
+    out = rr.collect_findings("main", "HEAD", runner=lambda p: calls.append(p) or {"findings": []})
+    assert calls == []
+    assert out == {"findings": []}
+
+
+def test_full_diff_empty_paths_returns_empty():
+    # No git call; guards against `git diff --` diffing the whole repo.
+    assert rr.full_diff("main", "HEAD", []) == ""

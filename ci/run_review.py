@@ -46,7 +46,12 @@ def file_diff(base: str, head: str, path: str) -> str:
 
 
 def full_diff(base: str, head: str, paths: list[str]) -> str:
-    """Combined diff for the integration pass."""
+    """Combined diff for the integration pass.
+
+    Returns "" for an empty path list — otherwise `git diff base...head --` has no
+    pathspec and git diffs the WHOLE repo (caught by the CI reviewer itself)."""
+    if not paths:
+        return ""
     return subprocess.run(
         ["git", "diff", f"{base}...{head}", "--", *paths],
         capture_output=True, text=True, check=True,
@@ -158,12 +163,7 @@ def run_claude(prompt: str) -> dict:
         return {"findings": []}
     if proc.returncode != 0:
         raise RuntimeError(f"claude review failed ({proc.returncode}): {proc.stderr.strip()}")
-    result = parse_review_output(proc.stdout)
-    print(  # debug (CI log): explains 0-finding passes and confirms the model answered
-        f"[review] {len(result.get('findings', []))} finding(s); raw head: {proc.stdout[:400]!r}",
-        file=sys.stderr,
-    )
-    return result
+    return parse_review_output(proc.stdout)
 
 
 def merge_findings(results: list[dict]) -> dict:
@@ -181,6 +181,8 @@ def collect_findings(base: str, head: str, runner=run_claude, max_workers: int =
     timeout. `runner` is injectable for offline tests.
     """
     files = changed_files(base, head)
+    if not files:
+        return {"findings": []}  # nothing in scope; skip the integration pass entirely
     prompts = [build_file_prompt(p, file_diff(base, head, p)) for p in files]
     prompts.append(build_integration_prompt(files, full_diff(base, head, files)))
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
