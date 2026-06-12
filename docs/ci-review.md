@@ -66,7 +66,12 @@ gh variable set REVIEW_MODEL --body opus     # or haiku, or a full model id
 ```
 
 ## Setup
-- Repo secret **`ANTHROPIC_API_KEY`** — used by `claude -p`.
+- **Auth (pick one):**
+  - **`CLAUDE_CODE_OAUTH_TOKEN`** *(preferred)* — `claude -p` draws from your Max/Pro
+    subscription quota (zero marginal API cost). Generate with `claude setup-token`, store
+    as a repo secret. Token lifecycle/rotation: `docs/claude-code-setup.md` §6.
+  - **`ANTHROPIC_API_KEY`** *(fallback)* — per-token Console billing; uncomment its line in
+    the workflow for shared/team CI that shouldn't ride a personal subscription.
 - `GITHUB_TOKEN` (auto-provided) with `pull-requests: write` — used to post comments.
 - Repo variable **`ENABLE_CLAUDE_REVIEW=true`** to turn the review on (see above).
 

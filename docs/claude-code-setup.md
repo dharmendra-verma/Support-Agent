@@ -132,3 +132,35 @@ on the team's target Claude Code version with the hook log.
   the more specific (directory) wins — document any surprise here.
 - Keep `CLAUDE.md` short. Bloated always-loaded memory costs context on every turn;
   push detail into `@import` modules and path-scoped rules that load on demand.
+
+## 6. CI auth: subscription OAuth token (SA-38)
+
+The CI reviewer (`.github/workflows/claude-review.yml`) authenticates `claude -p` with a
+**Max/Pro subscription OAuth token** instead of `ANTHROPIC_API_KEY`, so review runs draw
+from the subscription quota at **zero marginal API cost** (no per-token Console billing).
+
+### Generate & store (one time)
+```bash
+claude setup-token        # interactive; requires a logged-in Pro/Max session locally
+# copy the printed token, then store it as a repo secret (never commit it):
+gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo <owner>/<repo>   # paste at the prompt
+```
+The workflow reads it via `CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}`;
+the CLI resolves the token from that env var automatically.
+
+### Lifecycle
+- **Expiry / invalidation:** the token is tied to your Claude session. It is **invalidated
+  if you log out** (`claude` logout) and **expires periodically**. When it lapses, CI fails
+  at the review step with an auth error — it does not silently pass.
+- **Regenerate:** re-run `claude setup-token` and update the secret:
+  ```bash
+  gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo <owner>/<repo>
+  ```
+- **Rotate:** the same command overwrites the existing secret; no workflow change needed.
+
+### Tradeoff (read before enabling on a busy repo)
+CI now shares the **Max plan's rolling usage limits** with your interactive Claude Code
+sessions — heavy PR churn can throttle both. If reviews shouldn't ride a personal
+subscription (shared/team CI), switch back to the **`ANTHROPIC_API_KEY` fallback**
+(uncomment its line in the workflow, comment out the OAuth line) — that bills per-token to
+the Console account but isolates CI from your subscription quota.

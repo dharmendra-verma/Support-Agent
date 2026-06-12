@@ -34,7 +34,14 @@ jobs:
 
       - name: Run review (per-file + integration pass)
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Preferred: authenticate via the Max/Pro subscription OAuth token so review
+          # runs draw from the subscription quota (zero marginal API cost). Generate it
+          # locally with `claude setup-token` and store as the CLAUDE_CODE_OAUTH_TOKEN
+          # repo secret. See docs/claude-code-setup.md §6 for the token lifecycle.
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Fallback (per-token Console billing): for shared/team CI that shouldn't ride
+          # a personal subscription, comment out the line above and uncomment this one.
+          # ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           # Reviewer model — Sonnet by default; override repo-wide by setting the
           # REVIEW_MODEL variable (gh variable set REVIEW_MODEL --body opus).
           REVIEW_MODEL: ${{ vars.REVIEW_MODEL || 'sonnet' }}
