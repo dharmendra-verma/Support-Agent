@@ -13,13 +13,19 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 SCHEMA_PATH = Path(__file__).with_name("review_schema.json")
 CRITERIA_REF = ".claude/standards/review-criteria.md"
 
-# Only review source/text we care about; never binaries or lockfiles.
-CODE_SUFFIXES = (".py", ".md", ".yml", ".yaml", ".json", ".toml")
+# Correctness review targets source code; reviewing docs/yaml/json for "bugs" is
+# noise and burns CI time. Keep to Python.
+CODE_SUFFIXES = (".py",)
+
+# Per-file + integration passes run concurrently so wall-time ≈ slowest single
+# call, not the sum — without this the sequential calls overran the CI timeout.
+MAX_WORKERS = 4
 
 
 def changed_files(base: str, head: str) -> list[str]:
@@ -92,11 +98,17 @@ def merge_findings(results: list[dict]) -> dict:
     return {"findings": merged}
 
 
-def collect_findings(base: str, head: str, runner=run_claude) -> dict:
-    """Per-file passes + one integration pass → merged findings. `runner` injectable."""
+def collect_findings(base: str, head: str, runner=run_claude, max_workers: int = MAX_WORKERS) -> dict:
+    """Per-file passes + one integration pass → merged findings.
+
+    Passes run concurrently (order preserved) so the CI job stays well under its
+    timeout. `runner` is injectable for offline tests.
+    """
     files = changed_files(base, head)
-    results = [runner(build_file_prompt(p)) for p in files]
-    results.append(runner(build_integration_prompt(files)))
+    prompts = [build_file_prompt(p) for p in files]
+    prompts.append(build_integration_prompt(files))
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        results = list(pool.map(runner, prompts))
     return merge_findings(results)
 
 

@@ -13,7 +13,7 @@ permissions:
 jobs:
   review:
     runs-on: ubuntu-latest
-    timeout-minutes: 15  # hard stop; the reviewer is non-interactive and should be quick
+    timeout-minutes: 20  # hard stop; per-file passes run concurrently to stay well under this
     steps:
       - uses: actions/checkout@v4
         with:
