@@ -1,4 +1,10 @@
-"""The agentic loop.
+"""The agentic loop — **direct Messages-API reference implementation**.
+
+Production agentic work runs through the Claude Agent SDK (``sdk_agent.py``),
+which owns its own loop. This module is the hand-rolled equivalent built straight
+on the ``anthropic`` Messages API, kept to demonstrate and test the raw
+stop_reason control flow the exam covers (D1 TS 1.1) — and as the pattern we fall
+back to for any non-SDK, direct-API call.
 
 Control flow is driven *only* by the API ``stop_reason`` — never by parsing the
 model's prose. This is the central anti-pattern guard for SA-8:
