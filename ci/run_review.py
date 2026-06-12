@@ -37,29 +37,60 @@ def changed_files(base: str, head: str) -> list[str]:
     return [p for p in out.splitlines() if p.endswith(CODE_SUFFIXES)]
 
 
+def file_diff(base: str, head: str, path: str) -> str:
+    """Unified diff for one file — embedded in the prompt so the reviewer needs no tools."""
+    return subprocess.run(
+        ["git", "diff", f"{base}...{head}", "--", path],
+        capture_output=True, text=True, check=True,
+    ).stdout
+
+
+def full_diff(base: str, head: str, paths: list[str]) -> str:
+    """Combined diff for the integration pass.
+
+    Returns "" for an empty path list — otherwise `git diff base...head --` has no
+    pathspec and git diffs the WHOLE repo (caught by the CI reviewer itself)."""
+    if not paths:
+        return ""
+    return subprocess.run(
+        ["git", "diff", f"{base}...{head}", "--", *paths],
+        capture_output=True, text=True, check=True,
+    ).stdout
+
+
 def _criteria_clause() -> str:
     return (
         f"Apply the review criteria in {CRITERIA_REF}: REPORT only bug, security, "
         "correctness-test, and breaking-change findings; SKIP style/nit/subjective "
         "(ruff and humans own those). Default to NOT reporting when unsure — a false "
         "positive is worse than a miss. Each finding needs a stable detected_pattern key. "
-        "Return JSON matching ci/review_schema.json; return an empty findings array if clean."
+        'Return ONLY a JSON object, no prose and no markdown fences, of the form: '
+        '{"findings": [{"file": str, "line": int, "category": str, "severity": str, '
+        '"issue": str, "suggested_fix": str, "detected_pattern": str}]}. '
+        "Use an empty findings array if there are no issues."
     )
 
 
-def build_file_prompt(path: str) -> str:
+_NO_TOOLS = (
+    "Analyze ONLY the unified diff below — do not use any tools (no Read/Bash/etc.); "
+    "everything you need is in the diff."
+)
+
+
+def build_file_prompt(path: str, diff: str) -> str:
     return (
-        f"Review the changes to `{path}` in this PR for correctness defects only.\n\n"
-        f"{_criteria_clause()}"
+        f"Review the changes to `{path}` for correctness defects only. {_NO_TOOLS}\n\n"
+        f"{_criteria_clause()}\n\n```diff\n{diff}\n```"
     )
 
 
-def build_integration_prompt(paths: list[str]) -> str:
+def build_integration_prompt(paths: list[str], diff: str) -> str:
     listed = ", ".join(f"`{p}`" for p in paths) or "(none)"
     return (
-        "Integration pass: review how the changed files interact — broken call sites, "
-        "changed return shapes, ordering/timing dependencies, and contracts that span "
-        f"files. Changed files: {listed}.\n\n{_criteria_clause()}"
+        "Integration pass: from the combined diff below, review how the changed files "
+        "interact — broken call sites, changed return shapes, ordering/timing "
+        f"dependencies, and contracts that span files. Changed files: {listed}. "
+        f"{_NO_TOOLS}\n\n{_criteria_clause()}\n\n```diff\n{diff}\n```"
     )
 
 
@@ -74,20 +105,65 @@ def build_testgen_prompt(path: str, existing_test_files: list[str]) -> str:
     )
 
 
-def build_command(prompt: str, schema_path: Path = SCHEMA_PATH) -> list[str]:
-    """The non-interactive reviewer invocation. `-p` = print mode (no REPL → no hang)."""
-    cmd = ["claude", "-p", prompt, "--output-format", "json"]
-    if schema_path is not None:
-        cmd += ["--json-schema", str(schema_path)]
-    return cmd
+# Seconds a single review call may run before we give up on it (and skip that pass)
+# rather than letting one stuck call hang the whole CI job.
+CALL_TIMEOUT_S = 120
 
 
-def run_claude(prompt: str, schema_path: Path = SCHEMA_PATH) -> dict:
-    """Invoke the reviewer and parse its JSON. Isolated so tests don't spawn the CLI."""
-    proc = subprocess.run(build_command(prompt, schema_path), capture_output=True, text=True)
+def build_command(prompt: str) -> list[str]:
+    """The non-interactive reviewer invocation.
+
+    `-p` = print mode (no REPL). `--permission-mode bypassPermissions` keeps tool use
+    from blocking on an approval prompt; `--max-turns 1` forces a direct answer from the
+    diff in the prompt. We deliberately do NOT pass `--json-schema` — on this CLI it hangs
+    the call; the JSON shape is specified in the prompt instead.
+    """
+    return [
+        "claude", "-p", prompt,
+        "--output-format", "json",
+        "--permission-mode", "bypassPermissions",
+        "--max-turns", "1",
+    ]
+
+
+def parse_review_output(stdout: str) -> dict:
+    """`--output-format json` wraps the model's answer in a result envelope; the findings
+    JSON we want is the string in `.result`. Extract it, strip any markdown fences, parse."""
+    envelope = json.loads(stdout)
+    text = envelope.get("result", "") if isinstance(envelope, dict) else ""
+    text = (text or "").strip()
+    if text.startswith("```"):
+        # drop the opening ```lang line and the closing ``` fence
+        text = text.split("\n", 1)[1] if "\n" in text else ""
+        text = text.rsplit("```", 1)[0].strip()
+    if not text:
+        return {"findings": []}
+    data = json.loads(text)
+    return {"findings": data} if isinstance(data, list) else data
+
+
+def run_claude(prompt: str) -> dict:
+    """Invoke the reviewer and parse its findings. Isolated so tests don't spawn the CLI.
+
+    A stuck call is bounded by CALL_TIMEOUT_S and treated as 'no findings' so it can't
+    sink the whole job."""
+    try:
+        proc = subprocess.run(
+            build_command(prompt),
+            capture_output=True, text=True, timeout=CALL_TIMEOUT_S,
+            stdin=subprocess.DEVNULL,  # CI has no TTY — never block waiting on stdin/prompts
+        )
+    except subprocess.TimeoutExpired as exc:
+        tail = ((exc.stderr or exc.stdout or "") if isinstance(exc.stderr or exc.stdout, str) else "")[-600:]
+        print(
+            f"warning: review call timed out after {CALL_TIMEOUT_S}s; skipping. "
+            f"partial output: {tail!r}",
+            file=sys.stderr,
+        )
+        return {"findings": []}
     if proc.returncode != 0:
         raise RuntimeError(f"claude review failed ({proc.returncode}): {proc.stderr.strip()}")
-    return json.loads(proc.stdout)
+    return parse_review_output(proc.stdout)
 
 
 def merge_findings(results: list[dict]) -> dict:
@@ -105,8 +181,10 @@ def collect_findings(base: str, head: str, runner=run_claude, max_workers: int =
     timeout. `runner` is injectable for offline tests.
     """
     files = changed_files(base, head)
-    prompts = [build_file_prompt(p) for p in files]
-    prompts.append(build_integration_prompt(files))
+    if not files:
+        return {"findings": []}  # nothing in scope; skip the integration pass entirely
+    prompts = [build_file_prompt(p, file_diff(base, head, p)) for p in files]
+    prompts.append(build_integration_prompt(files, full_diff(base, head, files)))
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         results = list(pool.map(runner, prompts))
     return merge_findings(results)

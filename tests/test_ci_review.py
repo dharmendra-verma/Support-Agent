@@ -82,24 +82,47 @@ def test_load_findings_accepts_both_shapes():
 # --- run_review -------------------------------------------------------------
 
 
-def test_build_command_is_noninteractive_json():
-    cmd = rr.build_command("review please", schema_path="ci/review_schema.json")
+def test_build_command_is_noninteractive_and_headless():
+    cmd = rr.build_command("review please")
     assert cmd[:2] == ["claude", "-p"]
     assert "--output-format" in cmd and "json" in cmd
-    assert "--json-schema" in cmd
+    # bypassPermissions stops CI hangs on tool-approval prompts; max-turns 1 keeps
+    # the call to a single direct answer from the diff (no slow tool exploration)
+    assert "--permission-mode" in cmd and "bypassPermissions" in cmd
+    assert "--max-turns" in cmd
+    # --json-schema hangs this CLI; the JSON shape is specified in the prompt instead
+    assert "--json-schema" not in cmd
 
 
-def test_file_prompt_carries_criteria():
-    p = rr.build_file_prompt("src/agent/loop.py")
+def test_parse_review_output_extracts_findings_from_envelope():
+    env = '{"type":"result","result":"{\\"findings\\": [{\\"file\\": \\"a.py\\"}]}"}'
+    assert rr.parse_review_output(env) == {"findings": [{"file": "a.py"}]}
+
+
+def test_parse_review_output_strips_markdown_fences():
+    env = '{"result":"```json\\n{\\"findings\\": []}\\n```"}'
+    assert rr.parse_review_output(env) == {"findings": []}
+
+
+def test_parse_review_output_wraps_bare_list_and_handles_empty():
+    assert rr.parse_review_output('{"result":"[{\\"file\\":\\"x\\"}]"}') == {"findings": [{"file": "x"}]}
+    assert rr.parse_review_output('{"result":""}') == {"findings": []}
+
+
+def test_file_prompt_embeds_diff_and_criteria():
+    p = rr.build_file_prompt("src/agent/loop.py", "@@ -1 +1 @@\n-old\n+new")
     assert "src/agent/loop.py" in p
     assert "review-criteria.md" in p
     assert "detected_pattern" in p
+    assert "+new" in p  # diff embedded → reviewer needs no tools
+    assert "do not use any tools" in p.lower()
 
 
-def test_integration_prompt_is_cross_file():
-    p = rr.build_integration_prompt(["a.py", "b.py"])
+def test_integration_prompt_is_cross_file_with_diff():
+    p = rr.build_integration_prompt(["a.py", "b.py"], "DIFFBODY")
     assert "a.py" in p and "b.py" in p
     assert "interact" in p.lower() or "span" in p.lower()
+    assert "DIFFBODY" in p
 
 
 def test_testgen_prompt_avoids_duplication():
@@ -111,6 +134,8 @@ def test_testgen_prompt_avoids_duplication():
 
 def test_collect_findings_runs_per_file_plus_integration(monkeypatch):
     monkeypatch.setattr(rr, "changed_files", lambda base, head: ["a.py", "b.py"])
+    monkeypatch.setattr(rr, "file_diff", lambda base, head, path: f"diff {path}")
+    monkeypatch.setattr(rr, "full_diff", lambda base, head, paths: "full diff")
     calls = []
 
     def fake_runner(prompt):
@@ -120,3 +145,17 @@ def test_collect_findings_runs_per_file_plus_integration(monkeypatch):
     out = rr.collect_findings("main", "HEAD", runner=fake_runner)
     assert len(calls) == 3  # 2 files + 1 integration pass
     assert len(out["findings"]) == 3
+
+
+def test_collect_findings_no_files_skips_everything(monkeypatch):
+    """No in-scope files → no passes (and no empty-pathspec whole-repo diff)."""
+    monkeypatch.setattr(rr, "changed_files", lambda base, head: [])
+    calls = []
+    out = rr.collect_findings("main", "HEAD", runner=lambda p: calls.append(p) or {"findings": []})
+    assert calls == []
+    assert out == {"findings": []}
+
+
+def test_full_diff_empty_paths_returns_empty():
+    # No git call; guards against `git diff --` diffing the whole repo.
+    assert rr.full_diff("main", "HEAD", []) == ""

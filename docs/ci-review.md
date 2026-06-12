@@ -12,8 +12,11 @@ comments. Re-runs report only new/unaddressed issues.
   └─ ci/post_comments.py out repo pr      # filter report-vs-skip, dedup, post
 ```
 
-- **Non-interactive:** `claude -p` (print mode) never opens a REPL, so the job can't hang;
-  the job also has `timeout-minutes: 15` as a hard stop.
+- **Non-interactive & headless:** `claude -p` (print mode) never opens a REPL, and
+  `--permission-mode bypassPermissions` is passed so tool use never blocks on an approval
+  prompt (the cause of an early CI hang). The reviewer is also fed the **diff inline in the
+  prompt** and told not to use tools, so it needs no file access at all. Each call is bounded
+  by a per-call timeout, and the job has `timeout-minutes: 20` as a final backstop.
 - **Machine-parseable:** `--output-format json` + the schema in `ci/review_schema.json`
   yield findings with `file, line, category, severity, issue, suggested_fix,
   detected_pattern`.
