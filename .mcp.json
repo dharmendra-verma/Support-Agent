@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "resolvedesk": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "mcp_server.server"],
+      "env": {
+        "RESOLVEDESK_API_TOKEN": "${RESOLVEDESK_API_TOKEN}"
+      }
+    }
+  }
+}
