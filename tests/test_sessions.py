@@ -64,7 +64,7 @@ def test_fork_is_independent(tmp_path):
 # --- stale-context decision (the subtle bug + the fix) ----------------------
 
 
-def test_stale_resume_carries_wrong_context_fresh_does_not():
+def test_stale_context_starts_fresh_with_durable_facts_only():
     s = make_session()
     current = {"order:12345": {"status": "shipped"}}  # world changed since the snapshot
 
@@ -77,17 +77,17 @@ def test_stale_resume_carries_wrong_context_fresh_does_not():
     assert "12345" in fresh_ctx              # durable fact retained
     assert "Re-fetch" in fresh_ctx           # told to re-fetch volatile data
 
-    # Proof the naive alternative is wrong: resuming would replay the stale status.
-    resumed_ctx = " ".join(m["content"] for m in s.messages)
-    assert "processing" in resumed_ctx
 
-
-def test_non_stale_resumes_in_place():
+def test_resume_path_replays_prior_context_including_stale_value():
+    """Exercises the resume branch: when NOT stale, continue_session returns the original
+    session, whose history still carries the prior tool result. This is the meaningful
+    contrast to the fresh path — a naive resume of a *stale* session would replay this."""
     s = make_session()
-    current = {"order:12345": {"status": "processing"}}  # unchanged
+    current = {"order:12345": {"status": "processing"}}  # unchanged → resume is correct here
     assert is_stale(s, current) is False
     mode, sess = continue_session(s, current)
     assert mode == "resume" and sess is s
+    assert "processing" in " ".join(m["content"] for m in sess.messages)
 
 
 def test_continue_persists_fresh_when_store_given(tmp_path):
