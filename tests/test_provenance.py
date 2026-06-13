@@ -28,10 +28,14 @@ def f(topic, claim, source, *, value=None, date=None, ctype=ContentType.OTHER, e
 def test_finding_separates_content_from_metadata():
     finding = f("revenue", "Q1 revenue was $5M", "https://ex.com/q1", value="5000000",
                 date="2026-04-01", ctype=ContentType.FINANCIAL, evidence="revenue of $5M")
-    # content
-    assert finding.claim and finding.evidence
-    # metadata
-    assert finding.source and finding.source_date and finding.content_type
+    # content stored as given (not swapped with metadata)
+    assert finding.claim == "Q1 revenue was $5M"
+    assert finding.evidence == "revenue of $5M"
+    # metadata stored as given
+    assert finding.source == "https://ex.com/q1"
+    assert finding.source_date == "2026-04-01"
+    assert finding.value == "5000000"
+    assert finding.content_type == ContentType.FINANCIAL
 
 
 def test_finding_tool_def_is_the_output_contract():
@@ -84,6 +88,14 @@ def test_two_sources_same_value_is_established():
 
 def test_one_source_is_single_not_established():
     assert classify([f("price", "costs $10", "s1", value="10", date="2026-01-01")]) == SINGLE
+
+
+def test_valueless_source_does_not_corroborate_anothers_value():
+    # Source A states the value; source B only makes a claim with no value. B cannot
+    # corroborate a number it never reported → still SINGLE, not ESTABLISHED.
+    findings = [f("revenue", "Revenue is $5B", "A", value="5B", date="2026-01-01"),
+                f("revenue", "Revenue is strong", "B", date="2026-01-01")]
+    assert classify(findings) == SINGLE
 
 
 # --- conflict: side by side, never collapsed --------------------------------

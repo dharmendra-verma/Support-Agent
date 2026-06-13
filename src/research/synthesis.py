@@ -56,6 +56,18 @@ class ClaimGroup:
         return list(seen)
 
     @property
+    def corroborating_sources(self) -> list[str]:
+        """Distinct sources that actually stated a value — the ones that can corroborate it.
+        A finding that asserts a claim but reports no value does not corroborate a value it
+        never provided, so it is excluded here (but still appears in ``sources`` for
+        provenance)."""
+        seen: dict[str, None] = {}
+        for f in self.findings:
+            if f.value is not None:
+                seen.setdefault(f.source, None)
+        return list(seen)
+
+    @property
     def status(self) -> str:
         return classify(self.findings)
 
@@ -68,19 +80,21 @@ def classify(findings: list[Finding]) -> str:
     cannot prove it reflects change over time. Differing values each at their own date are a
     time series → ``temporal``, never a contradiction.
     """
-    values = [f.value for f in findings if f.value is not None]
-    distinct = set(values)
-    sources = {f.source for f in findings}
+    value_findings = [f for f in findings if f.value is not None]
+    distinct = {f.value for f in value_findings}
 
     if len(distinct) <= 1:
-        return ESTABLISHED if len(sources) >= 2 else SINGLE
+        # Corroboration is about the *value*: only sources that actually stated one count, so
+        # a source that gave a value plus a source that gave none is NOT two-source agreement
+        # (and a topic with no values at all has nothing to mark established).
+        corroborating = {f.source for f in value_findings}
+        return ESTABLISHED if len(corroborating) >= 2 else SINGLE
 
     # Multiple distinct values. Same-date disagreement, or a differing undated value, is a
     # genuine conflict; otherwise each value sits at its own date → temporal evolution.
     by_date: dict[str | None, set[str]] = defaultdict(set)
-    for f in findings:
-        if f.value is not None:
-            by_date[f.source_date].add(f.value)
+    for f in value_findings:
+        by_date[f.source_date].add(f.value)
     if any(len(v) > 1 for v in by_date.values()):
         return CONTESTED
     if None in by_date:          # an undated differing value — can't claim it's temporal
@@ -158,10 +172,13 @@ def render_group(group: ClaimGroup) -> str:
         else:
             body = _render_list(group)
         if status == ESTABLISHED:
-            body.append(f"  _well-established: corroborated by {len(group.sources)} sources._")
+            n = len(group.corroborating_sources)
+            body.append(f"  _well-established: corroborated by {n} sources._")
         elif status == TEMPORAL:
             body.append("  _values differ over time (not a contradiction)._")
-        elif status == SINGLE:
+        elif status == SINGLE and group.corroborating_sources:
+            # Only annotate corroboration for a value that exists; a purely qualitative
+            # finding has no value to be "uncorroborated".
             body.append("  _single source — not yet corroborated._")
     return "\n".join(body)
 
