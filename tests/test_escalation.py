@@ -45,14 +45,19 @@ SCENARIOS = [
 ]
 
 
-def test_scenarios_route_at_least_90_percent():
-    correct = sum(1 for _, sig, expected in SCENARIOS
-                  if classify_escalation(sig).route == expected)
-    assert correct / len(SCENARIOS) >= 0.90, f"{correct}/{len(SCENARIOS)} correct"
+def test_all_scenarios_route_correctly():
+    # The rules are deterministic, so the AC's >=90% bar is met at 100% — assert exactly
+    # that, so flipping any single critical case (demand-human, policy-gap, frustration)
+    # is caught instead of hidden by aggregate slack.
+    wrong = [(name, classify_escalation(sig).route, expected)
+             for name, sig, expected in SCENARIOS
+             if classify_escalation(sig).route != expected]
+    assert wrong == [], f"mis-routed {len(wrong)}/{len(SCENARIOS)}: {wrong}"
 
 
 def test_frustration_alone_never_escalates():
-    assert classify_escalation(CaseSignals(frustrated=True, resolvable=True)).route == R
+    # frustration only — no other signal (resolvable defaults True)
+    assert classify_escalation(CaseSignals(frustrated=True)).route == R
 
 
 def test_explicit_request_escalates_immediately_even_if_resolvable():
