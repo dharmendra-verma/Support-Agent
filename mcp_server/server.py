@@ -157,11 +157,14 @@ def build_server():
     """Construct the FastMCP server (lazy import keeps this module test-friendly)."""
     from fastmcp import FastMCP
 
+    from mcp_server.resources import register_resources
+
     mcp = FastMCP("resolvedesk")
     mcp.tool(get_customer, name="get_customer", description=GET_CUSTOMER_DESC)
     mcp.tool(lookup_order, name="lookup_order", description=LOOKUP_ORDER_DESC)
     mcp.tool(process_refund, name="process_refund", description=PROCESS_REFUND_DESC)
     mcp.tool(escalate_to_human, name="escalate_to_human", description=ESCALATE_DESC)
+    register_resources(mcp)  # refund/returns policy catalog (SA-12)
     return mcp
 
 
