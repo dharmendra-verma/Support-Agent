@@ -1,6 +1,7 @@
 """Tests for the policy catalog resources + MCP config scoping (SA-12)."""
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -37,11 +38,14 @@ def test_catalog_uris_are_stable():
     assert {uri for uri, _ in POLICY_CATALOG.values()} == {REFUND_POLICY_URI, RETURNS_POLICY_URI}
 
 
-def test_register_resources_on_real_fastmcp_server():
+def test_register_resources_actually_registers_both_policies():
     from fastmcp import FastMCP
 
     mcp = FastMCP("test")
-    register_resources(mcp)  # must not raise; registers both policy resources
+    register_resources(mcp)
+    resources = asyncio.run(mcp.list_resources())
+    uris = {str(r.uri) for r in resources}
+    assert REFUND_POLICY_URI in uris and RETURNS_POLICY_URI in uris  # actually registered
 
 
 # --- project-scoped .mcp.json: valid, env-expanded, no committed secrets -----
