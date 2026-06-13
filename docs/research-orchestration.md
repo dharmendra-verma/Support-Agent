@@ -99,8 +99,30 @@ as contested — we never assume change we can't prove, and never arbitrarily co
 credible sources. Rendering is type-appropriate: `financial` → table, `news` → prose with
 inline citations, `technical`/other → bulleted list. Every claim cites its source.
 
+## Resilient error propagation (SA-23)
+
+`src/research/errors.py` rejects the three subagent-failure anti-patterns: a useless generic
+status, a fake empty success that masks a failure, and killing the whole workflow on one
+failure.
+
+- **Local retry, then structured propagation.** `run_subagent(role, scope, execute_fn=…)`
+  retries transient failures (`TIMEOUT`/`RATE_LIMITED`) up to `max_attempts`; an unresolvable
+  error does **not** raise — it returns a `SubagentReport` carrying the `failure_type`, the
+  `attempted_query`, **partial results** gathered before failing, and **alternative
+  approaches**. Permanent failures (`ACCESS_DENIED`/`INVALID_SCOPE`) aren't retried.
+- **Coordinator never terminates.** `coordinate(tasks, …)` runs every task; `plan_recovery`
+  returns `RETRY_MODIFIED` for a bad scope or any failure that suggested alternatives, else
+  `PROCEED` with partial results. A report is appended for every task — a single failure can't
+  abort the run.
+- **Access failure ≠ valid empty.** `ok=True` with no findings is a *valid empty result*
+  (searched, found nothing); `ok=False` is an *access failure*. `is_valid_empty` vs
+  `is_access_failure` keep them distinct, so "no results found" is never confidently wrong.
+- **Coverage annotation.** `coverage_annotation(reports)` buckets scopes into well-supported,
+  searched-but-empty, and gaps-due-to-unavailable-sources, so the final synthesis states its
+  own coverage honestly instead of presenting a partial answer as complete.
+
 ## How to run the tests
 
 ```bash
-PYTHONPATH=src python -m pytest tests/test_orchestration.py tests/test_provenance.py -q
+PYTHONPATH=src python -m pytest tests/test_orchestration.py tests/test_provenance.py tests/test_error_propagation.py -q
 ```
