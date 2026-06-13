@@ -102,6 +102,16 @@ def test_refund_scenarios_include_preflight_tools():
             assert "lookup_order" in s.expected_tools, f"{s.id}: refund missing lookup_order"
 
 
+def test_tools_correct_is_none_when_no_expectation():
+    # No expected tools → None (not vacuously True), so a direct caller isn't misled.
+    from eval.harness import ScenarioResult
+    from eval.scenarios import STANDARD, Scenario
+    s = Scenario(id="x", category=STANDARD, customer_turns=("hi",),
+                 expect_resolved=True, expect_escalated=False, expected_tools=())
+    r = ScenarioResult(scenario=s, outcome=AgentOutcome(resolved=True, escalated=False))
+    assert r.tools_correct is None
+
+
 def test_suite_runs_end_to_end_and_produces_metrics():
     results = run_suite(_oracle)
     metrics = compute_metrics(results)

@@ -54,9 +54,12 @@ class ScenarioResult:
         return self.outcome.escalated == self.scenario.expect_escalated
 
     @property
-    def tools_correct(self) -> bool:
-        """Did the agent route the expected tools (expected ⊆ used)? Scenarios with no tool
-        expectation are not counted."""
+    def tools_correct(self) -> bool | None:
+        """Did the agent route the expected tools (expected ⊆ used)? Returns ``None`` for a
+        scenario with no tool expectation — NOT ``True`` (an empty set is vacuously a subset,
+        which would inflate accuracy for a direct caller). ``compute_metrics`` skips ``None``."""
+        if not self.scenario.expected_tools:
+            return None
         return set(self.scenario.expected_tools).issubset(set(self.outcome.tools_used))
 
 
