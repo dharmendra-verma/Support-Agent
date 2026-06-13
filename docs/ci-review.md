@@ -23,6 +23,8 @@ comments. Re-runs report only new/unaddressed issues.
 - **Per-file + integration:** `run_review.py` reviews each changed file alone, then runs
   one integration pass over the whole diff for cross-file issues (broken call sites,
   changed return shapes, ordering).
+- **Scope:** Python source **and** YAML config/workflows (`CODE_SUFFIXES`) — both carry real
+  bugs. Markdown/JSON/other docs are excluded as review noise.
 
 ## What gets reported
 Defined explicitly in [`.claude/standards/review-criteria.md`](../.claude/standards/review-criteria.md)
