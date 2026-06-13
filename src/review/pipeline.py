@@ -95,6 +95,20 @@ def route(findings: list[Finding], *, auto_threshold: float = 0.8) -> dict[str, 
     return {"auto_report": auto, "needs_triage": triage}
 
 
+def _strip_code_fence(text: str) -> str:
+    """Strip a Markdown code fence and an optional language tag from model output.
+
+    Robust to a newline before the tag (```\\njson\\n[...]```): strip whitespace BEFORE the
+    prefix check, then drop a leading ``json`` substring — not ``lstrip("json")``, which is a
+    character-set strip that stops at the leading newline and leaves the tag in place (then
+    json.loads fails and all findings are silently dropped)."""
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.split("```", 2)[1].strip()   # removes leading newline before the tag
+        text = text.removeprefix("json").strip()
+    return text
+
+
 def build_review_fn(model: str = "sonnet", *, client: Any | None = None) -> ReviewFn:
     """Build a production ``review_fn`` backed by a **second, independent** ``anthropic`` client
     session (lazy import — keeps this module import-safe without the SDK or a key). Each call is
@@ -114,9 +128,7 @@ def build_review_fn(model: str = "sonnet", *, client: Any | None = None) -> Revi
             messages=[{"role": "user", "content": prompt + "\n\nReturn ONLY a JSON array of "
                        "findings (file, line, issue, severity, confidence, suggested_fix)."}],
         )
-        text = "".join(getattr(b, "text", "") for b in msg.content).strip()
-        if text.startswith("```"):
-            text = text.split("```")[1].lstrip("json").strip()
+        text = _strip_code_fence("".join(getattr(b, "text", "") for b in msg.content))
         try:
             return json.loads(text)
         except json.JSONDecodeError:

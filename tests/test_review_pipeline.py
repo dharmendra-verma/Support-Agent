@@ -10,7 +10,13 @@ from review.passes import (
     parse_findings,
     per_file_prompt,
 )
-from review.pipeline import ReviewReport, needs_integration_pass, route, run_pipeline
+from review.pipeline import (
+    ReviewReport,
+    _strip_code_fence,
+    needs_integration_pass,
+    route,
+    run_pipeline,
+)
 
 
 def _big(path, n=30):
@@ -150,6 +156,15 @@ def test_parse_tolerates_null_or_garbage_confidence():
         {"file": "b.py", "issue": "y", "confidence": "high"},
     ], PER_FILE)
     assert findings[0].confidence == 0.5 and findings[1].confidence == 0.5
+
+
+def test_strip_code_fence_handles_tag_on_its_own_line():
+    body = "[{\"file\": \"a.py\", \"issue\": \"x\"}]"
+    # All these fence shapes must reduce to the same JSON — including a newline before "json".
+    assert _strip_code_fence(f"```json\n{body}\n```") == body
+    assert _strip_code_fence(f"```\njson\n{body}\n```") == body   # the lstrip bug case
+    assert _strip_code_fence(f"```\n{body}\n```") == body
+    assert _strip_code_fence(body) == body
 
 
 def test_parse_fills_default_file_for_per_file_pass():
