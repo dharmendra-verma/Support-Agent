@@ -52,6 +52,9 @@ def test_error_scenarios_carry_structured_injection_not_message_text():
         assert all("[" not in turn for turn in s.customer_turns), f"{s.id} leaks a text annotation"
         for tool, category in s.inject_errors:
             assert category in {"transient", "permission", "validation", "business"}
+            # The injected tool is routed before it fails, so it must be in expected_tools —
+            # otherwise the harness would flag that real call as unexpected.
+            assert tool in s.expected_tools, f"{s.id}: injected {tool} not in expected_tools"
 
 
 def test_agent_honoring_injection_escalates_on_real_tool_failure():
