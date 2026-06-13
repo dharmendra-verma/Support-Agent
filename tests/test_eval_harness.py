@@ -205,6 +205,23 @@ def test_report_json_and_markdown():
     assert "meets" in md  # oracle meets the 80% target
 
 
+def test_extraction_table_orders_worst_first_even_when_all_accurate():
+    # A mix of accuracies must render with the lowest first under the "worst first" heading,
+    # and an all-accurate set must NOT fall back to unordered insertion order.
+    def agent(scenario):
+        out = _oracle(scenario)
+        if scenario.id == "std-8":
+            return AgentOutcome(resolved=True, escalated=False, tools_used=out.tools_used,
+                                extractions=(("damage_report", "damage_type", True),
+                                             ("damage_report", "severity", False)))
+        return out
+
+    metrics = compute_metrics(run_suite(agent))
+    md = render_markdown(metrics)
+    # The 0% segment (severity) must appear before the 100% segment (damage_type).
+    assert md.index("damage_report.severity") < md.index("damage_report.damage_type")
+
+
 # --- the documented iteration: gap -> change -> improvement -----------------
 
 

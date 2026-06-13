@@ -72,8 +72,10 @@ def render_markdown(metrics: Metrics, judge_summary: dict | None = None, *,
     if metrics.extraction_accuracy:
         lines += ["", "## Extraction accuracy (worst segments first)",
                   "| doc_type.field | accuracy | n |", "| --- | --- | --- |"]
-        for (dt, fld) in metrics.worst_extraction_segments() or metrics.extraction_accuracy:
-            m = metrics.extraction_accuracy[(dt, fld)]
+        # Sort ALL segments ascending by accuracy so the table genuinely leads with the worst —
+        # never fall back to insertion order, which would contradict the heading.
+        ordered = sorted(metrics.extraction_accuracy.items(), key=lambda kv: kv[1]["accuracy"])
+        for (dt, fld), m in ordered:
             lines.append(f"| {dt}.{fld} | {m['accuracy']:.0%} | {m['n']} |")
 
     if judge_summary is not None:
