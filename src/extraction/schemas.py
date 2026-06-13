@@ -40,13 +40,20 @@ class Severity(str, Enum):
     UNCLEAR = "unclear"
 
 
+class LineItem(BaseModel):
+    description: str | None = None
+    amount: float | None = None
+
+
 class Invoice(BaseModel):
     invoice_number: str | None = None
     vendor: str | None = None
     invoice_date: str | None = None          # ISO 8601
+    due_date: str | None = None              # ISO 8601
     total_amount: float | None = None        # plain decimal, no symbol
     currency: Currency | None = None
     currency_other: str | None = None        # when currency == other
+    line_items: list[LineItem] | None = None
 
 
 class WarrantyCard(BaseModel):
