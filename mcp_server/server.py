@@ -165,6 +165,10 @@ def build_server():
     mcp.tool(process_refund, name="process_refund", description=PROCESS_REFUND_DESC)
     mcp.tool(escalate_to_human, name="escalate_to_human", description=ESCALATE_DESC)
     register_resources(mcp)  # refund/returns policy catalog (SA-12)
+
+    from agent.tooling import register_extra_tools  # lazy: avoids a circular import
+
+    register_extra_tools(mcp)  # scoped tools, e.g. check_refund_status (SA-13)
     return mcp
 
 

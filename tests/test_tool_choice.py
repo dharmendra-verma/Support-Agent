@@ -78,3 +78,16 @@ def test_check_refund_status_returns_only_status():
 def test_check_refund_status_propagates_not_found():
     out = tooling.check_refund_status("0000")
     assert out["ok"] is False and out["error"] == "not_found"  # not a confidently-wrong empty
+
+
+# --- co-registration: every advertised tool is runnable ---------------------
+
+
+def test_every_offered_schema_has_a_handler():
+    """Guard: never advertise a tool the dispatcher can't run."""
+    for schema in tooling.ALL_SCHEMAS:
+        assert schema["name"] in tooling.HANDLERS, f"{schema['name']} has no handler"
+
+
+def test_handlers_dispatch_the_scoped_tool():
+    assert tooling.HANDLERS["check_refund_status"]("12345")["status"] == "shipped"

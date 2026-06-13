@@ -66,6 +66,17 @@ def check_refund_status(order_id: str) -> dict:
 ALL_SCHEMAS = [*server.TOOL_SCHEMAS, CHECK_REFUND_STATUS_SCHEMA]
 _BY_NAME = {t["name"]: t for t in ALL_SCHEMAS}
 
+# Dispatch map for the FULL tool set. Co-located with ALL_SCHEMAS so the model is never
+# offered a tool the dispatcher can't run (every schema name has a handler here).
+HANDLERS = {**server.HANDLERS, "check_refund_status": check_refund_status}
+
+
+def register_extra_tools(mcp) -> None:
+    """Register the scoped tools (beyond the core 4) on a FastMCP server, so a tool that is
+    advertised is also actually runnable. Called by server.build_server()."""
+    mcp.tool(check_refund_status, name=CHECK_REFUND_STATUS_SCHEMA["name"],
+             description=CHECK_REFUND_STATUS_SCHEMA["description"])
+
 # Per-role tool sets — each kept small (≤5) for selection reliability.
 ROLE_TOOLS = {
     "verification": ["get_customer"],
