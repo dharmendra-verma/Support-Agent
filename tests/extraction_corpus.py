@@ -28,7 +28,7 @@ CORPUS = [
     {"doc_type": "warranty_card", "text": "Serial 00-AB-12 only on the sticker",
      "expected_nulls": ["product", "purchase_date", "warranty_months"]},
     {"doc_type": "warranty_card", "text": "Lifetime warranty on Widget X, bought Jan 2026",
-     "expected_nulls": ["serial_number"]},
+     "expected_nulls": ["serial_number", "warranty_months"]},  # 'lifetime' is not a month count
     {"doc_type": "warranty_card",
      "text": "Card: Drone Z\nSN: DRZ-5\nBought: 2026-02-20\nCoverage: 12 mo",
      "expected_nulls": []},

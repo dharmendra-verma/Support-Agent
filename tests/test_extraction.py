@@ -129,6 +129,8 @@ def test_corpus_has_20_docs_including_incomplete():
 @pytest.mark.skipif(not os.environ.get("ANTHROPIC_API_KEY"),
                     reason="live extraction over the corpus needs ANTHROPIC_API_KEY")
 def test_live_extraction_never_fabricates_missing_fields():
+    # CORPUS already contains every INCOMPLETE doc (INCOMPLETE = subset of CORPUS with
+    # non-empty expected_nulls), so iterating CORPUS covers the missing-field cases.
     fabricated = []
     for doc in CORPUS:
         result = extractor.extract(doc["text"], doc_type=doc["doc_type"])
