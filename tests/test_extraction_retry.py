@@ -46,15 +46,18 @@ def test_validate_dispatches_by_type():
 
 
 def test_retryable_failure_succeeds_on_retry():
-    # attempt 0: totals mismatch (retryable); attempt 1: corrected
+    seen: dict[int, str | None] = {}
+
     def extract_fn(doc, attempt, feedback):
+        seen[attempt] = feedback  # capture; assert outside the stub
         if attempt == 0:
-            return Invoice(total_amount=100.0, line_items=[LineItem(amount=40.0)])
-        assert feedback and "line items sum" in feedback  # feedback carried the error
-        return Invoice(total_amount=40.0, line_items=[LineItem(amount=40.0)])
+            return Invoice(total_amount=100.0, line_items=[LineItem(amount=40.0)])  # mismatch
+        return Invoice(total_amount=40.0, line_items=[LineItem(amount=40.0)])       # corrected
 
     out = retry.run_extraction("doc", extract_fn=extract_fn)
     assert out.status == retry.OK and out.attempts == 2
+    assert seen[0] is None                                   # no feedback on first attempt
+    assert seen[1] and "line items sum" in seen[1]           # retry carried the error
 
 
 def test_non_retryable_exits_early_without_burning_retries():
@@ -91,6 +94,7 @@ def test_feedback_includes_document_and_failed_extraction():
 
 
 def test_fewshot_pack_has_2_to_4_examples():
-    text = Path("prompts/extraction_fewshot.md").read_text(encoding="utf-8")
+    path = Path(__file__).resolve().parent.parent / "prompts" / "extraction_fewshot.md"
+    text = path.read_text(encoding="utf-8")
     assert 2 <= text.count("### Example") <= 4
     assert "use null" in text.lower() and "other" in text and "unclear" in text
