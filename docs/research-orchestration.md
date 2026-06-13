@@ -74,8 +74,33 @@ early the moment the criteria are satisfied (agent-architecture.md: iteration ca
 the primary terminator). `spawn_fn`/`synthesize_fn` are injected, so the whole loop is
 tested offline with fakes.
 
+## Structured context + provenance (SA-22)
+
+Subagents return **structured `Finding` objects, not prose** (`src/research/schemas.py`), so
+attribution survives the hop to synthesis. A `Finding` separates **content** (`claim`,
+`evidence`) from **metadata** (`source`, `source_date`, `content_type`), plus a `topic`
+(grouping key) and a comparable `value`. `finding_tool_def()` projects the model into a
+`record_finding` tool `input_schema` — subagents emit findings by *calling* the tool (one
+call per claim), so output is guaranteed-shaped and never loses its source.
+
+`synthesize(findings)` (`src/research/synthesis.py`) groups by `topic` and classifies each
+group, preserving claim→source mappings end-to-end:
+
+| Status | Condition | Rendering |
+|---|---|---|
+| `established` | one value, ≥2 independent sources | type-appropriate + "corroborated by N sources" |
+| `single` | one value, one source | type-appropriate + "not yet corroborated" |
+| `temporal` | differing values, **each at a different date** | type-appropriate + "values differ over time" |
+| `contested` | differing values at the **same date**, or an **undated** differing value | side-by-side, every value attributed |
+
+The temporal-vs-contested split is why dates are required: a value that *changed over time*
+is a time series, not a contradiction. An **undated** disagreement is treated conservatively
+as contested — we never assume change we can't prove, and never arbitrarily collapse two
+credible sources. Rendering is type-appropriate: `financial` → table, `news` → prose with
+inline citations, `technical`/other → bulleted list. Every claim cites its source.
+
 ## How to run the tests
 
 ```bash
-PYTHONPATH=src python -m pytest tests/test_orchestration.py -q
+PYTHONPATH=src python -m pytest tests/test_orchestration.py tests/test_provenance.py -q
 ```
