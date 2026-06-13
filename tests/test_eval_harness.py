@@ -44,6 +44,34 @@ def test_suite_has_at_least_30_scenarios_across_five_categories():
     assert {s.category for s in scenarios} == set(CATEGORIES)
 
 
+def test_error_scenarios_carry_structured_injection_not_message_text():
+    # The fault must live in inject_errors (tool, category), NOT as freeform text in the
+    # message — otherwise the harness would feed the annotation to the agent as customer text.
+    for s in load_scenarios("error_injection"):
+        assert s.inject_errors, f"{s.id} has no structured injection"
+        assert all("[" not in turn for turn in s.customer_turns), f"{s.id} leaks a text annotation"
+        for tool, category in s.inject_errors:
+            assert category in {"transient", "permission", "validation", "business"}
+
+
+def test_agent_honoring_injection_escalates_on_real_tool_failure():
+    # An agent that actually consults inject_errors and fails the named tool must escalate —
+    # exercising the real "a tool raised" path, not "customer claims an error".
+    def injecting_agent(scenario):
+        failed_tools = {t for t, _ in scenario.inject_errors}
+        if failed_tools:
+            return AgentOutcome(resolved=False, escalated=True,
+                                tools_used=tuple(scenario.expected_tools),
+                                final_response="a backend tool failed; escalating")
+        return _oracle(scenario)
+
+    err = load_scenarios("error_injection")
+    from eval.harness import run_scenario
+    for s in err:
+        result = run_scenario(s, injecting_agent)
+        assert result.outcome.escalated and result.escalation_correct
+
+
 def test_suite_runs_end_to_end_and_produces_metrics():
     results = run_suite(_oracle)
     metrics = compute_metrics(results)

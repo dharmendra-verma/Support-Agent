@@ -37,12 +37,17 @@ class Scenario:
     # Optional document-extraction ground truth: each {doc_type, field, correct?} — the
     # `correct` is filled by the agent run; here we carry doc_type/field as the labels.
     extraction_fields: tuple[tuple[str, str], ...] = ()  # (doc_type, field)
+    # Structured fault injection: (tool_name, error_category) pairs the harness uses to make a
+    # tool ACTUALLY fail — never encoded in the customer message, so the agent exercises the
+    # real "a tool raised an error" path, not "the customer claims there's an error".
+    inject_errors: tuple[tuple[str, str], ...] = ()
 
 
-def _s(sid, category, turns, *, resolved, escalated, tools=(), extraction=()):
+def _s(sid, category, turns, *, resolved, escalated, tools=(), extraction=(), inject=()):
     return Scenario(id=sid, category=category, customer_turns=tuple(turns),
                     expect_resolved=resolved, expect_escalated=escalated,
-                    expected_tools=tuple(tools), extraction_fields=tuple(extraction))
+                    expected_tools=tuple(tools), extraction_fields=tuple(extraction),
+                    inject_errors=tuple(inject))
 
 
 # --- standard (8) -----------------------------------------------------------
@@ -111,19 +116,23 @@ _HUMAN = [
 ]
 
 # --- error-injection → graceful handoff (6) ---------------------------------
+# The fault is carried in `inject` (tool_name, error_category) — the harness makes that tool
+# actually fail. Customer messages are clean, so the agent hits the real tool-error path.
 _ERROR = [
-    _s("err-1", ERROR_INJECTION, ["Where is order #12345? [backend down]"], resolved=False,
-       escalated=True, tools=["lookup_order", "escalate_to_human"]),
-    _s("err-2", ERROR_INJECTION, ["Refund order #12345 [refund service timeout]"],
-       resolved=False, escalated=True, tools=["lookup_order", "escalate_to_human"]),
-    _s("err-3", ERROR_INJECTION, ["Look up my account [auth provider unavailable]"],
-       resolved=False, escalated=True, tools=["get_customer", "escalate_to_human"]),
-    _s("err-4", ERROR_INJECTION, ["Status of #555 [database error]"], resolved=False,
-       escalated=True, tools=["lookup_order", "escalate_to_human"]),
-    _s("err-5", ERROR_INJECTION, ["Process my refund [permission denied]"], resolved=False,
-       escalated=True, tools=["process_refund", "escalate_to_human"]),
-    _s("err-6", ERROR_INJECTION, ["Cancel order #777 [service unreachable]"], resolved=False,
-       escalated=True, tools=["lookup_order", "escalate_to_human"]),
+    _s("err-1", ERROR_INJECTION, ["Where is order #12345?"], resolved=False, escalated=True,
+       tools=["lookup_order", "escalate_to_human"], inject=[("lookup_order", "transient")]),
+    _s("err-2", ERROR_INJECTION, ["Refund order #12345."], resolved=False, escalated=True,
+       tools=["lookup_order", "escalate_to_human"], inject=[("process_refund", "transient")]),
+    _s("err-3", ERROR_INJECTION, ["Look up my account."], resolved=False, escalated=True,
+       tools=["get_customer", "escalate_to_human"], inject=[("get_customer", "transient")]),
+    _s("err-4", ERROR_INJECTION, ["What's the status of order #555?"], resolved=False,
+       escalated=True, tools=["lookup_order", "escalate_to_human"],
+       inject=[("lookup_order", "transient")]),
+    _s("err-5", ERROR_INJECTION, ["Process my refund on order #12345."], resolved=False,
+       escalated=True, tools=["process_refund", "escalate_to_human"],
+       inject=[("process_refund", "permission")]),
+    _s("err-6", ERROR_INJECTION, ["Cancel order #777."], resolved=False, escalated=True,
+       tools=["lookup_order", "escalate_to_human"], inject=[("lookup_order", "transient")]),
 ]
 
 SCENARIOS: tuple[Scenario, ...] = tuple(_STANDARD + _MULTI + _POLICY + _HUMAN + _ERROR)

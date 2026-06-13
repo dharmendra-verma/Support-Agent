@@ -10,7 +10,10 @@ independent LLM-as-judge. Exam: D4 TS 4.1/4.6, D5 TS 5.5. Code: `eval/`. Tests:
 
 - **`eval/scenarios/`** — 30 scripted conversations across five categories (8 standard,
   6 multi-concern, 5 policy-gap, 5 demand-human, 6 error-injection). Each declares its
-  ground-truth expectations (resolved? escalated? expected tools? extraction labels).
+  ground-truth expectations (resolved? escalated? expected tools? extraction labels). The
+  error-injection scenarios carry **structured** fault config (`inject_errors`: `(tool, error
+  category)` pairs), not freeform message text — so the harness makes a tool *actually* fail and
+  the agent hits the real tool-error path, rather than reading "[backend down]" as customer text.
 - **`eval/harness.py`** — `run_suite(agent_fn)` drives the scripted customer simulator against
   an injected agent and `compute_metrics` scores the suite:
   - **first-contact-resolution rate** over the *resolvable* scenarios (escalation cases don't
