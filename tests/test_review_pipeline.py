@@ -134,10 +134,22 @@ def test_report_orders_by_severity_then_confidence():
     report = ReviewReport(findings=[
         Finding("a.py", 1, "low thing", "low", confidence=0.9),
         Finding("b.py", 2, "critical thing", "critical", confidence=0.5),
-        Finding("c.py", 3, "high thing", "high", confidence=0.7),
+        Finding("c.py", 3, "high thing (less sure)", "high", confidence=0.3),
+        Finding("d.py", 4, "high thing (more sure)", "high", confidence=0.7),
     ])
     ordered = [f.issue for f in report.by_severity()]
-    assert ordered == ["critical thing", "high thing", "low thing"]
+    # Severity primary; within the SAME severity (both 'high'), higher confidence first.
+    assert ordered == ["critical thing", "high thing (more sure)",
+                       "high thing (less sure)", "low thing"]
+
+
+def test_parse_tolerates_null_or_garbage_confidence():
+    # LLM output may give confidence as null or a non-numeric string — must not crash.
+    findings = parse_findings([
+        {"file": "a.py", "issue": "x", "confidence": None},
+        {"file": "b.py", "issue": "y", "confidence": "high"},
+    ], PER_FILE)
+    assert findings[0].confidence == 0.5 and findings[1].confidence == 0.5
 
 
 def test_parse_fills_default_file_for_per_file_pass():

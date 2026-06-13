@@ -87,12 +87,16 @@ def parse_findings(raw: list[dict], pass_type: str, *, default_file: str | None 
     pass where the reviewer omitted it (it was told which file it's reviewing)."""
     findings: list[Finding] = []
     for r in raw or []:
+        # Guard the cast: an LLM may emit confidence as null or a non-numeric string. r.get's
+        # default only fires for an ABSENT key, so null/garbage would otherwise crash float().
+        raw_conf = r.get("confidence")
+        confidence = float(raw_conf) if isinstance(raw_conf, (int, float)) else 0.5
         findings.append(Finding(
             file=r.get("file") or default_file or "?",
             line=r.get("line"),
             issue=r.get("issue", ""),
             severity=str(r.get("severity", "medium")).lower(),
-            confidence=float(r.get("confidence", 0.5)),
+            confidence=confidence,
             suggested_fix=r.get("suggested_fix", ""),
             pass_type=pass_type,
             detected_pattern=r.get("detected_pattern", ""),
