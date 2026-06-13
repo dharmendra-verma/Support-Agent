@@ -37,8 +37,8 @@ def test_absent_fields_return_null():
 
 def test_empty_document_validates_to_all_null():
     assert Invoice.model_validate({}).model_dump() == {
-        "invoice_number": None, "vendor": None, "invoice_date": None,
-        "total_amount": None, "currency": None, "currency_other": None}
+        "invoice_number": None, "vendor": None, "invoice_date": None, "due_date": None,
+        "total_amount": None, "currency": None, "currency_other": None, "line_items": None}
 
 
 def test_json_schema_marks_optional_fields_nullable():
