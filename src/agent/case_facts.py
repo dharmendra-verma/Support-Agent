@@ -34,6 +34,11 @@ _STATUS_RE = re.compile(
 )
 # Customer-stated expectations: a clause anchored on an intent verb, up to sentence end.
 _EXPECT_RE = re.compile(r"\b((?:want|expect|need)s?\b[^.!?]*)", re.IGNORECASE)
+# Split a turn into clauses so each order's status is read from ITS OWN clause, not a single
+# status smeared across every order in the turn ("#1 shipped but #2 is pending"). Sentence
+# terminators and the contrastive/listing conjunctions but/and delimit clauses; commas do NOT
+# (an order and its trailing status are often comma-separated within one clause).
+_CLAUSE_SPLIT_RE = re.compile(r"[.!?;]|\bbut\b|\band\b", re.IGNORECASE)
 
 
 @dataclass
@@ -88,11 +93,16 @@ ExtractFn = Callable[[str], CaseFacts]
 def extract_facts(text: str) -> CaseFacts:
     """Deterministic regex extraction of transactional facts from one turn of text."""
     facts = CaseFacts()
-    order_ids = [m.group(1) for m in _ORDER_RE.finditer(text)]
-    status_match = _STATUS_RE.search(text)
-    status = status_match.group(1).lower() if status_match else None
-    for oid in order_ids:
-        facts.set_order_status(oid, status)
+    # Associate each order with the status found in its OWN clause (per-clause, not a single
+    # global status applied to every order in the turn).
+    for clause in _CLAUSE_SPLIT_RE.split(text):
+        order_ids = [m.group(1) for m in _ORDER_RE.finditer(clause)]
+        if not order_ids:
+            continue
+        status_match = _STATUS_RE.search(clause)
+        status = status_match.group(1).lower() if status_match else None
+        for oid in order_ids:
+            facts.set_order_status(oid, status)
     for a in _AMOUNT_RE.findall(text):
         facts._add(facts.amounts, a)
     for d in _DATE_RE.findall(text):

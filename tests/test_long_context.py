@@ -43,6 +43,12 @@ def test_repeated_amount_is_not_duplicated():
     assert facts.amounts == ["$49.99"]
 
 
+def test_each_order_gets_its_own_clause_status():
+    # One status must NOT be smeared across every order in the turn.
+    facts = extract_facts("Order #12345 shipped but order #67890 is pending.")
+    assert facts.orders == {"12345": "shipped", "67890": "pending"}
+
+
 def test_order_seen_without_status_is_unknown_until_known():
     facts = CaseFacts()
     update_facts(facts, "I'm calling about order #98765")
@@ -120,9 +126,11 @@ def _summarized_history(turns, *, keep_last=3):
 
 def test_baseline_without_layer_loses_exact_figure_from_turn_2():
     turns = _conversation()
-    # No case-facts layer — only summarized history reaches the model at turn 20.
-    baseline = _summarized_history(turns)
-    # Evidence of the failure mode: the exact amount/order from turn 2 are gone.
+    # Exercise the REAL assembly path with an EMPTY facts block (no layer) — only the
+    # summarized history reaches the model at turn 20.
+    baseline = assemble_context("", [("Conversation summary", _summarized_history(turns))])
+    # Evidence of the failure mode: the exact amount/order from turn 2 are gone, and
+    # assemble_context did not somehow resurrect them.
     assert "$49.99" not in baseline
     assert "#12345" not in baseline
 
