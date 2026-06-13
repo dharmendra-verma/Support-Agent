@@ -12,6 +12,7 @@ source of truth. See `docs/mcp-tools.md` for the before/after description study 
 from __future__ import annotations
 
 from mcp_server.backend import REFUND_AUTO_APPROVE_LIMIT, Backend, NotFoundError
+from mcp_server.errors import BusinessRuleViolation, ValidationFailure, tool_errors
 
 _backend = Backend.seeded()
 
@@ -70,35 +71,52 @@ SYSTEM_PROMPT = (
 # --- handlers (call the backend, return structured results) -----------------
 
 
+# Failures are surfaced as structured isError envelopes by @tool_errors (SA-11); a
+# not_found is a VALID empty result (successful query, no match) — NOT an error.
+
+
+@tool_errors
 def get_customer(identifier: str) -> dict:
+    if not identifier or not identifier.strip():
+        raise ValidationFailure("identifier is required (a customer id or email)")
     try:
         return {"ok": True, "customer": _backend.get_customer(identifier)}
     except NotFoundError as exc:
         return {"ok": False, "error": "not_found", "detail": str(exc)}
 
 
+@tool_errors
 def lookup_order(order_id: str) -> dict:
+    if not order_id or not str(order_id).strip():
+        raise ValidationFailure("order_id is required")
     try:
         return {"ok": True, "order": _backend.get_order(order_id)}
     except NotFoundError as exc:
         return {"ok": False, "error": "not_found", "detail": str(exc)}
 
 
+@tool_errors
 def process_refund(order_id: str, amount: float, reason: str) -> dict:
+    if amount is None or amount <= 0:
+        raise ValidationFailure("amount must be a positive number")
     try:
-        rec = _backend.record_refund(order_id, amount, reason)
+        order = _backend.get_order(order_id)
     except NotFoundError as exc:
         return {"ok": False, "error": "not_found", "detail": str(exc)}
-    if not rec["auto_approved"]:
+    if amount > REFUND_AUTO_APPROVE_LIMIT:
         return {
             "ok": False, "error": "requires_approval",
             "detail": (f"amount {amount} exceeds the auto-approve limit "
                        f"{REFUND_AUTO_APPROVE_LIMIT:.0f}; call escalate_to_human"),
-            "refund": rec,
         }
-    return {"ok": True, "refund": rec}
+    if amount > order["total"]:
+        raise BusinessRuleViolation(
+            f"refund {amount} exceeds order total {order['total']}",
+            "We can only refund up to the amount paid on this order.")
+    return {"ok": True, "refund": _backend.record_refund(order_id, amount, reason)}
 
 
+@tool_errors
 def escalate_to_human(reason: str, context: str = "") -> dict:
     return {"ok": True, "ticket": _backend.record_escalation(reason, context)}
 
