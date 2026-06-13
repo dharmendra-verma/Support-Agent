@@ -91,7 +91,8 @@ def _normalize_dict(d: dict) -> None:
             raw["status"] = d["status"]
             d["status"] = canon
     if raw:
-        d["raw"] = {**d.get("raw", {}), **raw}
+        existing = d.get("raw")
+        d["raw"] = {**(existing if isinstance(existing, dict) else {}), **raw}
 
 
 def normalize_result(result: Any) -> Any:

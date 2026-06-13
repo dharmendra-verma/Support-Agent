@@ -77,6 +77,13 @@ def test_normalize_does_not_touch_unrelated_numbers():
     assert out == {"total": 120.0, "amount": 40}  # only timestamp/status fields normalized
 
 
+def test_normalize_survives_preexisting_nondict_raw():
+    """A tool result using 'raw' as a non-dict field must not crash normalization."""
+    out = normalize_result({"status": 2, "raw": "preexisting"})
+    assert out["status"] == "shipped"
+    assert out["raw"]["status"] == 2  # our originals stored without TypeError
+
+
 # --- integration: hooks in the dispatch loop --------------------------------
 
 
