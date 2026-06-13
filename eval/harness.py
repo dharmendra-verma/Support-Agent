@@ -65,8 +65,10 @@ def run_scenario(scenario: Scenario, agent_fn: AgentFn) -> ScenarioResult:
 
 
 def run_suite(agent_fn: AgentFn, scenarios: list[Scenario] | None = None) -> list[ScenarioResult]:
-    """Run every scenario end-to-end through ``agent_fn``."""
-    return [run_scenario(s, agent_fn) for s in (scenarios or load_scenarios())]
+    """Run every scenario end-to-end through ``agent_fn``. An explicit empty list runs nothing
+    (it is NOT treated as 'use the default suite' — only ``None`` means that)."""
+    chosen = scenarios if scenarios is not None else load_scenarios()
+    return [run_scenario(s, agent_fn) for s in chosen]
 
 
 @dataclass

@@ -79,7 +79,9 @@ def render_markdown(metrics: Metrics, judge_summary: dict | None = None, *,
     if judge_summary is not None:
         lines += ["", "## Independent judge (rubric, no generation context)",
                   f"- **Overall pass rate:** {judge_summary['overall_pass_rate']:.0%}",
-                  f"- **Mean rubric score:** {judge_summary['mean_score']:.0%}", "",
+                  # mean_score is a normalised 0-1 fraction of criteria passed (see
+                  # RubricScore.score), so a percentage render is correct.
+                  f"- **Mean rubric pass fraction:** {judge_summary['mean_score']:.0%}", "",
                   "| criterion | pass rate |", "| --- | --- |"]
         for k, v in judge_summary["by_criterion"].items():
             lines.append(f"| {k} | {v:.0%} |")

@@ -72,6 +72,24 @@ def test_agent_honoring_injection_escalates_on_real_tool_failure():
         assert result.outcome.escalated and result.escalation_correct
 
 
+def test_empty_scenario_list_runs_nothing_not_the_full_suite():
+    # An explicit empty list must NOT be treated as "use the default suite".
+    assert run_suite(_oracle, scenarios=[]) == []
+
+
+def test_judge_fails_silent_drop_on_escalation_case():
+    # An agent that neither resolves NOR escalates an escalation-needed case has silently
+    # dropped the concern — addressed_all_concerns must FAIL, not pass via `not resolved`.
+    gap = load_scenarios("policy_gap")[0]
+    from eval.harness import run_scenario
+
+    def does_nothing(scenario):
+        return AgentOutcome(resolved=False, escalated=False, final_response="(no action)")
+
+    score = judge_resolution(run_scenario(gap, does_nothing))
+    assert score.verdicts["addressed_all_concerns"] is False
+
+
 def test_suite_runs_end_to_end_and_produces_metrics():
     results = run_suite(_oracle)
     metrics = compute_metrics(results)

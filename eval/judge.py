@@ -75,7 +75,8 @@ class RubricScore:
 
     @property
     def score(self) -> float:
-        """Fraction of criteria passed (for aggregate quality, not a vague 1-10)."""
+        """Fraction of rubric criteria passed — a **normalised 0.0–1.0 rate** (NOT a 1-10 or
+        0-5 scale), so it renders correctly as a percentage downstream."""
         return sum(self.verdicts.values()) / len(self.verdicts) if self.verdicts else 0.0
 
 
@@ -120,11 +121,13 @@ def _default_judge(result: ScenarioResult) -> RubricScore:
     score.justifications["no_fabrication"] = (
         "no unsupported claim" if no_fab else "resolved a case it could not legitimately resolve")
 
-    # addressed_all_concerns: a resolvable case is only 'addressed' if it was resolved.
-    addressed = o.resolved if s.expect_resolved else (o.escalated or not o.resolved)
+    # addressed_all_concerns: a resolvable case is 'addressed' only if resolved; an
+    # escalation case only if it actually escalated. Doing NOTHING (neither resolved nor
+    # escalated) is a silent drop and must FAIL — not pass via `not o.resolved`.
+    addressed = o.resolved if s.expect_resolved else o.escalated
     score.verdicts["addressed_all_concerns"] = addressed
     score.justifications["addressed_all_concerns"] = (
-        "all concerns handled" if addressed else "left a concern unhandled")
+        "all concerns handled" if addressed else "left a concern unhandled / silently dropped")
 
     # accurate_facts: stand-in trusts the deterministic agent's citations.
     score.verdicts["accurate_facts"] = True
