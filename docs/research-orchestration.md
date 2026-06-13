@@ -121,8 +121,26 @@ failure.
   searched-but-empty, and gaps-due-to-unavailable-sources, so the final synthesis states its
   own coverage honestly instead of presenting a partial answer as complete.
 
+## Crash recovery (SA-24)
+
+Long runs die (process restart, context exhaustion). Two persisted layers let a run survive:
+
+- **Run manifest** (`src/research/manifest.py`): the task list with each task's status +
+  findings, checkpointed after every completed subtask via `save_manifest` — an **atomic**
+  write (temp file + `os.replace`), so a crash mid-write never corrupts the file. On restart,
+  `load_manifest` → `pending()`/`completed()` partition the work; the resumed run **skips
+  completed subtasks** and `resume_prompt` **injects prior findings** so nothing is re-derived.
+- **Scratchpads + phase summaries** (`src/research/state.py`): agents append key findings to a
+  durable markdown `Scratchpad` and read them back for later questions (so facts live in
+  storage, not a decaying context). `phase_summary` condenses one phase's findings (capped,
+  with disclosed elision) and `next_phase_context` injects them into the next phase — countering
+  the long-session "vague typical-patterns" degradation.
+
+The kill-and-resume integration test crashes the run mid-flight and verifies completed
+subtasks are not redone and all findings survive end-to-end.
+
 ## How to run the tests
 
 ```bash
-PYTHONPATH=src python -m pytest tests/test_orchestration.py tests/test_provenance.py tests/test_error_propagation.py -q
+PYTHONPATH=src python -m pytest tests/test_orchestration.py tests/test_provenance.py tests/test_error_propagation.py tests/test_recovery.py -q
 ```
