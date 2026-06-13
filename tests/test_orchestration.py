@@ -162,6 +162,28 @@ def test_refinement_loop_runs_another_round_to_close_a_gap():
     assert result.gaps == []
 
 
+def test_multiple_gaps_in_one_round_all_survive_to_synthesis():
+    # Two criteria unmet after round 1 → two gap subtasks, both role="web_search".
+    # Findings must be keyed so neither overwrites the other before synthesis sees them.
+    seen_findings: list[dict] = []
+
+    async def spawn_fn(st):
+        return f"finding for [{st.scope}]"
+
+    async def synthesize_fn(findings):
+        seen_findings.append(dict(findings))
+        return "round-1 covers nothing"   # both criteria stay unmet → one refine round
+
+    asyncio.run(run_research(
+        "broad question", spawn_fn=spawn_fn, synthesize_fn=synthesize_fn,
+        criteria=["alpha", "beta"], max_rounds=2,
+    ))
+    # On the refinement round both gap findings must be present (distinct keys), not one.
+    last = seen_findings[-1]
+    assert sum("alpha" in v for v in last.values()) == 1
+    assert sum("beta" in v for v in last.values()) == 1
+
+
 def test_refinement_loop_is_bounded_by_max_rounds():
     async def spawn_fn(st):
         return "nothing useful"

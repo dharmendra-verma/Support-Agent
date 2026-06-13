@@ -172,7 +172,7 @@ class ResearchResult:
     """Outcome of an orchestrated research run."""
 
     answer: str
-    findings: dict[str, str] = field(default_factory=dict)  # role -> finding text
+    findings: dict[str, str] = field(default_factory=dict)  # "role:scope" -> finding text
     rounds: int = 0
     gaps: list[str] = field(default_factory=list)
 
@@ -224,7 +224,10 @@ async def run_research(
         # buys us (latency_seconds(parallel) == one subtask, not the sum).
         results = await asyncio.gather(*(spawn_fn(st) for st in subtasks))
         for st, text in zip(subtasks, results):
-            findings[st.role] = text
+            # Key by role+scope, not role alone: a refinement round fires several gap
+            # subtasks that all share role="web_search", so keying by role would let each
+            # overwrite the previous and only the last gap's finding would reach synthesis.
+            findings[f"{st.role}:{st.scope}"] = text
         answer = await synthesize_fn(findings)
 
         gaps = find_gaps(criteria, answer)
