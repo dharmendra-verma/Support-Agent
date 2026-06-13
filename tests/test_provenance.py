@@ -37,9 +37,20 @@ def test_finding_separates_content_from_metadata():
 def test_finding_tool_def_is_the_output_contract():
     td = finding_tool_def()
     assert td["name"] == "record_finding"
-    props = td["input_schema"]["properties"]
-    for required_field in ("topic", "claim", "source", "source_date", "value", "content_type"):
-        assert required_field in props
+    schema = td["input_schema"]
+    props = schema["properties"]
+    required = schema.get("required", [])
+    # All six fields are part of the contract...
+    for field_name in ("topic", "claim", "source", "source_date", "value", "content_type"):
+        assert field_name in props
+    # ...and the agent is FORCED to supply the attribution-critical ones (no defaults), so a
+    # finding can never arrive without a topic, a claim, or its source.
+    for mandatory in ("topic", "claim", "source"):
+        assert mandatory in required, f"{mandatory} must be a required field"
+    # The rest are intentionally optional (not every claim has a date/stat) — confirm the
+    # schema agrees rather than silently forcing fabricated values.
+    for optional in ("source_date", "value"):
+        assert optional not in required
 
 
 # --- provenance round-trip --------------------------------------------------
