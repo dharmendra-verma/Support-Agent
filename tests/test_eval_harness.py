@@ -93,6 +93,15 @@ def test_judge_fails_silent_drop_on_escalation_case():
     assert score.verdicts["addressed_all_concerns"] is False
 
 
+def test_refund_scenarios_include_preflight_tools():
+    # Any scenario whose expected tools include process_refund must also expect the verify +
+    # lookup pre-flight (the canonical refund chain), so the ground truth isn't under-specified.
+    for s in load_scenarios():
+        if "process_refund" in s.expected_tools:
+            assert "get_customer" in s.expected_tools, f"{s.id}: refund missing get_customer"
+            assert "lookup_order" in s.expected_tools, f"{s.id}: refund missing lookup_order"
+
+
 def test_suite_runs_end_to_end_and_produces_metrics():
     results = run_suite(_oracle)
     metrics = compute_metrics(results)
