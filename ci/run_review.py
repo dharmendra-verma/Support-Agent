@@ -24,9 +24,9 @@ CRITERIA_REF = ".claude/standards/review-criteria.md"
 # Override per-environment with REVIEW_MODEL (e.g. "opus", "haiku", or a full model id).
 REVIEW_MODEL = os.environ.get("REVIEW_MODEL", "sonnet")
 
-# Correctness review targets source code; reviewing docs/yaml/json for "bugs" is
-# noise and burns CI time. Keep to Python.
-CODE_SUFFIXES = (".py",)
+# Review Python source and YAML config (workflows/actions) — both can carry real
+# correctness/breaking-change bugs. Docs/markdown/json are still excluded as review noise.
+CODE_SUFFIXES = (".py", ".yml", ".yaml")
 
 # Per-file + integration passes run concurrently so wall-time ≈ slowest single
 # call, not the sum — without this the sequential calls overran the CI timeout.
