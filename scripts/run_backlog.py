@@ -27,16 +27,19 @@ def poll_until_ended(client, batch_id, *, interval_s: int = 30, timeout_s: int =
     raise TimeoutError(f"batch {batch_id} did not end within {timeout_s}s")
 
 
-def run(docs: list[dict], *, sample: int | None = None, max_chars: int | None = None):
-    import anthropic
+def run(docs: list[dict], *, sample: int | None = None, max_chars: int | None = None,
+        client=None):
+    if client is None:
+        import anthropic
 
-    client = anthropic.Anthropic()
+        client = anthropic.Anthropic()
     work = docs[:sample] if sample else docs
 
     submitted = client.messages.batches.create(requests=batch.build_batch_requests(work))
     ended = poll_until_ended(client, submitted.id)
     results = client.messages.batches.results(ended.id)
-    correlated = batch.correlate_results(results, doc_types={d["custom_id"]: d.get("doc_type") for d in work})
+    correlated = batch.correlate_results(
+        results, doc_types={d["custom_id"]: d.get("doc_type") for d in work})
 
     failed = batch.failed_ids(correlated)
     first_pass = 1 - len(failed) / max(len(work), 1)
@@ -44,9 +47,15 @@ def run(docs: list[dict], *, sample: int | None = None, max_chars: int | None = 
 
     if failed:
         docs_by_id = {d["custom_id"]: d for d in work}
-        retry_batch = client.messages.batches.create(
-            requests=batch.resubmit_requests(failed, docs_by_id, max_chars=max_chars))
+        retry_reqs = batch.resubmit_requests(failed, docs_by_id, max_chars=max_chars)
+        retry_batch = client.messages.batches.create(requests=retry_reqs)
         print(f"resubmitted {len(failed)} failed item(s) as batch {retry_batch.id}")
+        # poll and MERGE retry results — otherwise the retry outcomes are dropped
+        ended_retry = poll_until_ended(client, retry_batch.id)
+        retry_results = client.messages.batches.results(ended_retry.id)
+        retry_doc_types = {r["custom_id"]: docs_by_id[r["custom_id"].split("::")[0]].get("doc_type")
+                           for r in retry_reqs}
+        correlated.update(batch.correlate_results(retry_results, doc_types=retry_doc_types))
     return correlated
 
 

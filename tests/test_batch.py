@@ -118,3 +118,47 @@ def test_submission_cadence_feasible_for_30h_window():
 def test_submission_cadence_infeasible_when_target_below_window():
     plan = batch.submission_cadence(10_000, processing_window_h=24, target_turnaround_h=20)
     assert plan["feasible"] is False
+
+
+# --- runner polls + merges retry results (the dropped-results bug) -----------
+
+
+class FakeBatchesAPI:
+    def __init__(self, results_by_batch):
+        self.results_by_batch = results_by_batch
+        self._n = 0
+
+    def create(self, *, requests):
+        self._n += 1
+        return Block(id=f"batch_{self._n}")
+
+    def retrieve(self, batch_id):
+        return Block(id=batch_id, processing_status="ended")  # immediate → no sleep
+
+    def results(self, batch_id):
+        return self.results_by_batch[batch_id]
+
+
+class FakeClient:
+    def __init__(self, results_by_batch):
+        self.messages = Block(batches=FakeBatchesAPI(results_by_batch))
+
+
+def test_run_backlog_polls_and_merges_retry_results():
+    from scripts.run_backlog import run
+
+    work = [
+        {"custom_id": "ticket-0001", "document": "Invoice\nAcme\nTotal $10", "doc_type": "invoice"},
+        {"custom_id": "ticket-0002", "document": "Order 5 cracked", "doc_type": "damage_report"},
+    ]
+    first = [
+        Entry("ticket-0001", Result("succeeded", message=Msg([
+            Block(type="tool_use", name="extract_invoice", input={"vendor": "Acme", "total_amount": 10.0})]))),
+        Entry("ticket-0002", Result("errored", error=Block(message="overloaded"))),
+    ]
+    retry = [Entry("ticket-0002", Result("succeeded", message=Msg([
+        Block(type="tool_use", name="extract_damage_report", input={"order_id": "5", "damage_type": "shipping"})])))]
+
+    out = run(work, client=FakeClient({"batch_1": first, "batch_2": retry}))
+    assert out["ticket-0001"]["status"] == "succeeded"
+    assert out["ticket-0002"]["status"] == "succeeded"  # retry result merged, not dropped
