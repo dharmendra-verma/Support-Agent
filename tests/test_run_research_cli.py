@@ -12,15 +12,19 @@ import asyncio
 
 import scripts.run_research as cli
 from research.agents import COORDINATOR, subagent
+from research.coordinator import Subtask
 from research.runner import (
     RECORD_FINDING_TOOL,
+    FindingCollector,
+    _with_finding,
+    finding_enabled_specs,
     findings_from_json,
     findings_to_json,
-    finding_enabled_specs,
     format_result,
+    make_spawn_fn,
     make_synthesize_fn,
 )
-from research.schemas import Finding
+from research.schemas import FINDING_INSTRUCTIONS, Finding
 
 
 # --- fakes ------------------------------------------------------------------
@@ -172,12 +176,74 @@ def test_synthesize_fn_preserves_conflicting_sources_side_by_side():
 
 
 def test_findings_json_round_trip_and_tolerant_parsing():
+    import json
+
     original = [_finding("scope-1"), _finding("scope-2", source="other://x", value="42")]
     restored = findings_from_json(findings_to_json(original))
     assert [f.model_dump() for f in restored] == [f.model_dump() for f in original]
-    # An empty or garbage blob is a valid-empty result, not a crash.
+    # Every degenerate blob is a valid-empty result, not a crash (the synthesis step must never
+    # die mid-run on a bad blob).
     assert findings_from_json("") == []
-    assert findings_from_json("not json") == []
+    assert findings_from_json("not json") == []                       # not JSON at all
+    assert findings_from_json('{"topic": "t"}') == []                 # valid JSON, but not a list
+    assert findings_from_json('[{"topic": "x"}]') == []               # list item missing required fields
+    # A malformed item is dropped; well-formed siblings still come through.
+    mixed = json.dumps([_finding("ok").model_dump(mode="json"), {"topic": "bad"}])
+    assert [f.topic for f in findings_from_json(mixed)] == ["ok"]
+
+
+# --- augmentation is single-sourced; the wiring test guards the live path ----
+
+
+def test_with_finding_is_single_source_for_subagent_augmentation():
+    base = subagent("web_search")
+    aug = _with_finding(base)
+    # record_finding added to the role's tiny toolset; the role tools are preserved.
+    assert aug.tools == base.tools + (RECORD_FINDING_TOOL,)
+    # The shared, purpose-built instructions are appended (not the tool's own description).
+    assert FINDING_INSTRUCTIONS in aug.prompt
+    # finding_enabled_specs() (asserted offline) is built from the SAME helper the live
+    # build_spawn_options() path uses, so the invariant view can't drift from production.
+    by_name = {s.name: s for s in finding_enabled_specs()}
+    assert by_name["web_search"] == aug
+
+
+# --- the real spawn loop is now drivable offline (collector + timeout) -------
+
+
+def test_make_spawn_fn_drives_the_collector_offline():
+    seen: list[FindingCollector] = []
+
+    def fake_wiring(subtask, model):
+        collector = FindingCollector()
+        seen.append(collector)
+        return collector, object()                # opaque options stand-in, never touched offline
+
+    async def fake_query(*, prompt, options):
+        # Stand in for the SDK: the subagent calls record_finding once, then the turn ends.
+        seen[-1].add({"topic": "t", "claim": "c", "source": "s"})
+        return
+        yield                                      # noqa: unreachable — makes this an async generator
+
+    spawn = make_spawn_fn(query_fn=fake_query, wiring_factory=fake_wiring)
+    blob = asyncio.run(spawn(Subtask(role="web_search", scope="sc", prompt="p")))
+
+    assert [f.claim for f in findings_from_json(blob)] == ["c"]
+
+
+def test_make_spawn_fn_times_out_without_hanging_and_returns_partial():
+    def fake_wiring(subtask, model):
+        return FindingCollector(), object()
+
+    async def slow_query(*, prompt, options):
+        await asyncio.sleep(10)                    # never finishes within the timeout
+        yield
+
+    spawn = make_spawn_fn(query_fn=slow_query, wiring_factory=fake_wiring,
+                          per_subtask_timeout=0.01)
+    # Returns (does not hang or raise) with whatever was collected — here, nothing.
+    blob = asyncio.run(spawn(Subtask(role="web_search", scope="sc", prompt="p")))
+    assert findings_from_json(blob) == []
 
 
 # --- wiring invariant: coordinator owns Task; subagents stay role-scoped -----
