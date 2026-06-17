@@ -10,6 +10,9 @@ Keep it lean — detailed standards live in the imported modules below.
   `loop.py` stop_reason reference implementation.
 - Jira project [SUPPORT AGENT (SA)](https://projecttracking.atlassian.net/browse/SA);
   code on [GitHub](https://github.com/dharmendra-verma/Support-Agent).
+- Architecture: see [`docs/architecture-sa39.md`](docs/architecture-sa39.md) for the live
+  research-agent flow (CLI → `run_research` coordinator → parallel role-scoped subagents via the
+  SDK `Task` tool → provenance-preserving synthesis), as Mermaid diagrams.
 
 ## Standards (composed via @import — edit the module, not this file)
 @.claude/standards/python-style.md
