@@ -33,9 +33,11 @@ import json
 import logging
 from dataclasses import replace
 
+from pydantic import ValidationError
+
 from research.agents import COORDINATOR, SUBAGENTS, build_agent_definitions, subagent
 from research.coordinator import ResearchResult, Subtask
-from research.schemas import Finding, finding_tool_def
+from research.schemas import FINDING_INSTRUCTIONS, Finding, finding_tool_def
 from research.synthesis import synthesize
 
 logger = logging.getLogger("resolvedesk.research.runner")
@@ -96,25 +98,31 @@ def build_finding_server(collector: FindingCollector):
 # --- agent wiring (Task + role-scoped tools) --------------------------------
 
 
-def finding_enabled_specs():
-    """The subagent specs with ``record_finding`` added to every *researcher*'s toolset.
+def _with_finding(spec, *, model: str | None = None):
+    """Augment one *researcher* spec so it can emit structured findings: append the shared
+    ``schemas.FINDING_INSTRUCTIONS`` to its prompt (the purpose-built "one record_finding call
+    per claim, never merge sources" guidance) and add the in-process ``record_finding`` tool.
 
-    Researchers must be able to emit structured findings; the merge-only ``synthesis`` role and
-    the ``coordinator`` (whose sole tool stays ``Task``) are left exactly as declared. Returned as
-    SDK-independent ``AgentSpec``s so the wiring invariant can be asserted offline, and projected
-    into real ``AgentDefinition``s by :func:`build_agent_definitions` only when the SDK is present.
+    The single source of truth for this augmentation — used by both the offline wiring-invariant
+    view (:func:`finding_enabled_specs`) and the live spawn options (:func:`build_spawn_options`)
+    so the asserted invariant and the production path can never drift.
     """
-    enabled = []
-    for spec in SUBAGENTS:
-        if spec.name == "synthesis":
-            enabled.append(spec)
-            continue
-        enabled.append(replace(
-            spec,
-            prompt=spec.prompt + "\n\n" + finding_tool_def()["description"],
-            tools=spec.tools + (RECORD_FINDING_TOOL,),
-        ))
-    return enabled
+    return replace(
+        spec,
+        prompt=spec.prompt + "\n\n" + FINDING_INSTRUCTIONS,
+        tools=spec.tools + (RECORD_FINDING_TOOL,),
+        model=model or spec.model,
+    )
+
+
+def finding_enabled_specs():
+    """The subagent specs as the live spawn path wires them: every *researcher* gets
+    ``record_finding`` via :func:`_with_finding`; the merge-only ``synthesis`` role (and the
+    ``coordinator``, whose sole tool stays ``Task``) are left exactly as declared. SDK-independent
+    ``AgentSpec``s, so the wiring invariant can be asserted offline against the same helper the
+    SDK projection uses.
+    """
+    return [spec if spec.name == "synthesis" else _with_finding(spec) for spec in SUBAGENTS]
 
 
 def build_spawn_options(role: str, finding_server, *, model: str | None = None,
@@ -122,23 +130,17 @@ def build_spawn_options(role: str, finding_server, *, model: str | None = None,
     """Assemble ``ClaudeAgentOptions`` for delegating ONE subtask to the ``role`` subagent.
 
     The queried (coordinator) agent's only tool is ``Task``; it spawns the role-scoped subagent,
-    which carries only its own minimal tools plus ``record_finding``. ``permission_mode`` is
+    which carries only its own minimal tools plus ``record_finding`` (via :func:`_with_finding`,
+    the same augmentation :func:`finding_enabled_specs` asserts). ``permission_mode`` is
     ``bypassPermissions`` so the autonomous CLI run isn't blocked on interactive approval. SDK
     imported lazily.
     """
     from claude_agent_sdk import ClaudeAgentOptions
 
-    spec = subagent(role)
-    enabled = replace(
-        spec,
-        prompt=spec.prompt + "\n\n" + finding_tool_def()["description"],
-        tools=spec.tools + (RECORD_FINDING_TOOL,),
-        model=model or spec.model,
-    )
     return ClaudeAgentOptions(
         system_prompt=COORDINATOR.prompt,
         allowed_tools=["Task", RECORD_FINDING_TOOL],
-        agents=build_agent_definitions([enabled]),
+        agents=build_agent_definitions([_with_finding(subagent(role), model=model)]),
         mcp_servers={FINDING_SERVER_NAME: finding_server},
         permission_mode="bypassPermissions",
         max_turns=max_turns,
@@ -166,9 +168,14 @@ def findings_to_json(findings: list[Finding]) -> str:
 
 
 def findings_from_json(blob: str) -> list[Finding]:
-    """Rehydrate :class:`Finding` objects from a per-subtask JSON blob. A blank or unparseable
-    blob yields no findings rather than raising — a subagent that recorded nothing is a valid
-    empty result, not a crash."""
+    """Rehydrate :class:`Finding` objects from a per-subtask JSON blob. The bridge tolerates
+    every degenerate shape rather than raising — a subagent that recorded nothing (or a blob that
+    is blank, not JSON, not a JSON list, or carries a malformed item) is a valid empty/partial
+    result, not a crash that would take down the synthesis step mid-run.
+
+    A blank or non-JSON blob yields ``[]``; a JSON value that isn't a list yields ``[]``; and any
+    individual item that doesn't satisfy the :class:`Finding` contract is dropped (logged), the
+    well-formed siblings still returned."""
     if not blob:
         return []
     try:
@@ -176,25 +183,50 @@ def findings_from_json(blob: str) -> list[Finding]:
     except json.JSONDecodeError:
         logger.warning("could not parse findings blob; treating as empty: %.80r", blob)
         return []
-    return [Finding.model_validate(item) for item in raw]
+    if not isinstance(raw, list):
+        logger.warning("findings blob was not a JSON list; treating as empty: %.80r", blob)
+        return []
+    findings: list[Finding] = []
+    for item in raw:
+        try:
+            findings.append(Finding.model_validate(item))
+        except ValidationError as exc:
+            logger.warning("dropping malformed finding (%s): %.80r", exc, item)
+    return findings
 
 
 # --- real spawn_fn / synthesize_fn ------------------------------------------
 
 
+def _default_spawn_wiring(subtask: Subtask, model: str | None):
+    """Build the per-spawn SDK wiring: a fresh :class:`FindingCollector` (concurrency isolation —
+    one per subtask so parallel ``gather`` spawns never cross-contaminate), its in-process
+    ``record_finding`` server, and the coordinator options that delegate to the role subagent."""
+    collector = FindingCollector()
+    server = build_finding_server(collector)
+    options = build_spawn_options(subtask.role, server, model=model)
+    return collector, options
+
+
 def make_spawn_fn(*, query_fn=None, per_subtask_timeout: float = 120.0,
-                  model: str | None = None):
+                  model: str | None = None, wiring_factory=None):
     """Build the real ``spawn_fn``: one call → one role-scoped subagent → its findings as JSON.
 
-    ``query_fn`` defaults to ``claude_agent_sdk.query`` (injected in tests). A hung subagent is
-    bounded by ``per_subtask_timeout`` so a single stuck Task can never hang the blocking CLI
-    forever; on timeout whatever was collected so far is returned (partial results), and the
-    missing coverage surfaces as an unmet criterion in ``run_research`` (ties into SA-23).
+    ``query_fn`` defaults to ``claude_agent_sdk.query``. A hung subagent is bounded by
+    ``per_subtask_timeout`` so a single stuck Task can never hang the blocking CLI forever; on
+    timeout whatever was collected so far is returned (partial results), and the missing coverage
+    surfaces as an unmet criterion in ``run_research`` (ties into SA-23).
+
+    ``wiring_factory(subtask, model) -> (FindingCollector, options)`` builds the per-spawn SDK
+    wiring and defaults to :func:`_default_spawn_wiring`. It is the injection seam that, together
+    with ``query_fn``, makes the spawn loop itself — collector lifecycle, the timeout → partial-
+    results path, JSON serialisation — drivable **offline** without the SDK: a test supplies a
+    fake factory plus a ``query_fn`` that populates the returned collector.
     """
+    wiring_factory = wiring_factory or _default_spawn_wiring
+
     async def spawn(subtask: Subtask) -> str:
-        collector = FindingCollector()
-        server = build_finding_server(collector)
-        options = build_spawn_options(subtask.role, server, model=model)
+        collector, options = wiring_factory(subtask, model)
         prompt = _delegation_prompt(subtask.role, subtask.prompt)
 
         # Reuse the SDK consumption loop (sdk_agent.run_support_agent); findings are captured as
