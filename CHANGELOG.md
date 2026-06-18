@@ -5,9 +5,9 @@ All notable changes to ResolveDesk are documented here. Format follows
 [SUPPORT AGENT (SA)](https://projecttracking.atlassian.net/browse/SA) backlog rather than
 semantic releases.
 
-## Project status — 2026-06-13
+## Project status — 2026-06-18
 
-**29 of 30 backlog stories Done · 274 tests passing (3 skipped, live-API only) · ruff clean.**
+**30 of 31 backlog stories Done · 288 tests passing (3 skipped, live-API only) · ruff clean.**
 Every story shipped through the full SDLC: branch → offline tests → PR → independent CI review
 (a second Claude instance) → fix findings → merge → Jira Done. SA-36 (timed mock exams) is held
 **In Progress** — its materials are built, but the score trend and ≥80% bar are the candidate's
@@ -51,6 +51,11 @@ to record.
   one failure (`research/errors.py`).
 - **SA-24** — crash recovery via an atomically-persisted manifest + scratchpads/phase summaries
   (`research/manifest.py`, `state.py`).
+- **SA-39** — live CLI runner wiring `run_research` for production: real `spawn_fn`/`synthesize_fn`
+  adapters over the Agent SDK (`Task`-spawned role-scoped subagents, in-process `record_finding`
+  capture, per-subtask timeout) + a blocking `asyncio.run` entry point; `run_research` left
+  unchanged. Architecture diagrams in `docs/architecture-sa39.md` (`scripts/run_research.py`,
+  `research/runner.py`).
 
 ### Long-context support (Epic SA-7 — complete)
 - **SA-28** — persistent case-facts context layer + tool-output trimming; exact figures survive a
