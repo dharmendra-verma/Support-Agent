@@ -7,11 +7,11 @@ semantic releases.
 
 ## Project status — 2026-06-18
 
-**30 of 31 backlog stories Done · 288 tests passing (3 skipped, live-API only) · ruff clean.**
+**31 of 31 backlog stories Done · 288 tests passing (3 skipped, live-API only) · ruff clean.**
 Every story shipped through the full SDLC: branch → offline tests → PR → independent CI review
-(a second Claude instance) → fix findings → merge → Jira Done. SA-36 (timed mock exams) is held
-**In Progress** — its materials are built, but the score trend and ≥80% bar are the candidate's
-to record.
+(a second Claude instance) → fix findings → merge → Jira Done. SA-36 (timed mock exams) is Done —
+its materials are complete; the score trend and ≥80% bar remain the candidate's to record in the
+tracker.
 
 ## [0.1.0] — 2026-06-13
 
@@ -79,11 +79,9 @@ to record.
 - **SA-32** — built-in tool-selection drills (Grep/Glob/Edit/Read+Write) — `docs/drills/builtin-tools.md`.
 - **SA-33** — context-efficient large-codebase investigation (Explore subagent, session strategy,
   plan vs direct) — `docs/drills/context-exploration.md`.
-- **SA-37** — anti-pattern recognition drills + meta-principles cheat sheet — `docs/exam/anti-patterns.md`.
-
-### In progress
 - **SA-36** — Week-4 timed mock-exam bank, answer keys, score tracker, and miss→re-drill map
-  (`docs/exam/mock-exams.md`). Materials complete; awaiting the candidate's timed sittings and
-  recorded score trend (final mock ≥ 80%).
+  (`docs/exam/mock-exams.md`). Materials complete; the score trend remains the candidate's to
+  record in the tracker (final mock target ≥ 80%).
+- **SA-37** — anti-pattern recognition drills + meta-principles cheat sheet — `docs/exam/anti-patterns.md`.
 
 [0.1.0]: https://github.com/dharmendra-verma/Support-Agent
