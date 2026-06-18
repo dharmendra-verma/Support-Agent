@@ -56,6 +56,8 @@ flowchart TD
     end
 ```
 
+> 🖼️ Rendered: [`diagrams/sa39-1-control-flow.svg`](diagrams/sa39-1-control-flow.svg)
+
 ---
 
 ## 2. Inside one `spawn_fn` — the agentic core (live path)
@@ -100,6 +102,8 @@ flowchart TD
     Drive ==>|"drives"| Coord
     CollDB -.->|"same object"| Coll
 ```
+
+> 🖼️ Rendered: [`diagrams/sa39-2-spawn-core.svg`](diagrams/sa39-2-spawn-core.svg)
 
 > **Why the relay works:** Task-spawned subagents inherit the parent `ClaudeAgentOptions.mcp_servers`,
 > so the subagent can call `mcp__research__record_finding`; the handler appends to the per-spawn
@@ -148,6 +152,8 @@ sequenceDiagram
         R-->>U: ResearchResult(answer, rounds, gaps) → format_result → stdout
     end
 ```
+
+> 🖼️ Rendered: [`diagrams/sa39-3-sequence.svg`](diagrams/sa39-3-sequence.svg)
 
 ---
 
