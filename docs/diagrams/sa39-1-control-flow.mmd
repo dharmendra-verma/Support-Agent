@@ -1,0 +1,38 @@
+flowchart TD
+    User([User]) -->|"run_research 'question' --criteria … --max-rounds N"| CLI
+
+    subgraph CLILayer["CLI shell — scripts/run_research.py"]
+        CLI["main(argv)"] --> Parse["argparse + _parse_criteria"]
+        Parse --> Gate{"spawn_fn source?"}
+        Gate -->|"--dry-run"| Dry["dry_run_spawn_fn<br/>(offline fake)"]
+        Gate -->|"ANTHROPIC_API_KEY set"| Live["make_spawn_fn<br/>(live SDK)"]
+        Gate -->|"no key & not dry-run"| Refuse["stderr msg → exit 2"]
+        Synth0["make_synthesize_fn<br/>(deterministic, offline)"]
+    end
+
+    Dry --> Run
+    Live --> Run
+    Synth0 --> Run
+
+    subgraph Core["Coordinator core — research/coordinator.py · run_research (untouched, DI)"]
+        Run["run_research"] --> Select["select_subagents(query)<br/>→ roles"]
+        Select --> Decomp["decompose(query, roles)<br/>→ non-overlapping Subtasks"]
+        Decomp --> Loop{{"refinement loop (≤ max_rounds)"}}
+        Loop --> Fan["asyncio.gather(spawn_fn(st) …)<br/><b>PARALLEL fan-out</b>"]
+        Fan --> Collect["findings dict<br/>'role:scope' → JSON blob"]
+        Collect --> SynthCall["synthesize_fn(findings)"]
+        SynthCall --> Gaps["find_gaps(criteria, answer)"]
+        Gaps -->|"gaps remain & rounds left"| Refine["build gap subtasks"] --> Loop
+        Gaps -->|"no gaps OR cap hit"| Result["ResearchResult<br/>(answer, rounds, gaps)"]
+    end
+
+    Result --> Format["format_result()<br/>text or --json"]
+    Format --> Out([stdout])
+
+    SynthCall -.->|"calls"| SynthMod
+    Fan -.->|"each call"| SpawnNote["one role-scoped subagent<br/>(see view 2)"]
+
+    subgraph SynthMod["research/synthesis.py"]
+        SY["synthesize(findings)"] --> GBT["group_by_topic → classify<br/>established / single / temporal / contested"]
+        GBT --> MD["to_markdown()<br/>claim→source, conflicts side-by-side"]
+    end

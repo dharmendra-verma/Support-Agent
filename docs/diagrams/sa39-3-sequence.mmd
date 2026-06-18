@@ -1,0 +1,34 @@
+sequenceDiagram
+    autonumber
+    actor U as User / CLI
+    participant R as run_research
+    participant G as asyncio.gather
+    participant A1 as subagent web_search
+    participant A2 as subagent doc_search
+    participant C as FindingCollector(s)
+    participant SY as synthesize
+
+    U->>R: run_research(query, spawn_fn, synthesize_fn, criteria)
+    R->>R: select_subagents + decompose
+    R->>G: gather(spawn(st1), spawn(st2))
+
+    par parallel — latency ≈ slowest subtask
+        G->>A1: query + Task(web_search) + self-contained prompt
+        A1->>C: record_finding × N (structured, attributed)
+        A1-->>G: findings JSON
+    and
+        G->>A2: query + Task(doc_search) + self-contained prompt
+        A2->>C: record_finding × M
+        A2-->>G: findings JSON
+    end
+
+    G-->>R: [json1, json2]
+    R->>SY: synthesize_fn(findings dict) — rehydrate then merge
+    SY-->>R: provenance markdown (claim→source, conflicts side-by-side)
+    R->>R: find_gaps(criteria, answer)
+
+    alt gaps remain & rounds left
+        R->>G: gather(gap subtasks) — next refinement round
+    else satisfied OR max_rounds hit
+        R-->>U: ResearchResult(answer, rounds, gaps) → format_result → stdout
+    end

@@ -1,0 +1,32 @@
+flowchart TD
+    subgraph Spawn["make_spawn_fn → spawn(subtask) · runner.py"]
+        W["wiring_factory(subtask, model)<br/>(injectable seam → offline-testable)"]
+        W --> Coll["FindingCollector()<br/>(one per spawn — isolation)"]
+        W --> Srv["build_finding_server(collector)<br/>in-process MCP: record_finding"]
+        W --> Opt["build_spawn_options(role, server)"]
+        Opt --> WF["_with_finding(subagent(role))<br/>role tools + record_finding<br/>+ FINDING_INSTRUCTIONS"]
+        DP["_delegation_prompt(role, subtask.prompt)"]
+
+        Coll --> Drive
+        Srv --> Drive
+        Opt --> Drive
+        DP --> Drive
+        Drive["asyncio.wait_for(<br/>run_support_agent(prompt, options, runner=query_fn),<br/>timeout)"]
+        Drive -->|"TimeoutError"| Partial["log → return partial"]
+        Drive --> JSON["findings_to_json(collector.findings)"]
+        Partial --> JSON
+    end
+
+    JSON --> Ret([JSON blob → back to run_research])
+
+    subgraph SDK["Agent SDK execution — agent/sdk_agent.run_support_agent → claude_agent_sdk.query"]
+        Coord["Coordinator agent<br/>(allowed_tools: Task)"]
+        Coord -->|"Task(subagent_type=role)"| Subagent["Role subagent<br/>web_search · doc_search · document_analysis"]
+        Subagent -->|"role tools"| Tools["WebSearch / WebFetch<br/>Read / Grep / Glob"]
+        Subagent -->|"record_finding(Finding)"| Handler["in-process MCP handler"]
+        Handler -->|"model_validate + append"| CollDB[("FindingCollector")]
+        Subagent --> RM["ResultMessage ends the turn<br/>(termination ≠ parsing prose)"]
+    end
+
+    Drive ==>|"drives"| Coord
+    CollDB -.->|"same object"| Coll
