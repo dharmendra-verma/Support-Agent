@@ -9,6 +9,7 @@ not exercised here by design.
 from __future__ import annotations
 
 import asyncio
+import os
 
 import scripts.run_research as cli
 from research.agents import COORDINATOR, subagent
@@ -138,6 +139,9 @@ def test_subtasks_for_a_round_run_concurrently(capsys):
 
 def test_live_run_without_api_key_refuses(capsys, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    # Stay hermetic: a developer's real repo-root .env (which holds the key) must not
+    # leak in via the new autoload and defeat the "no key anywhere" refusal.
+    monkeypatch.setattr(cli, "load_dotenv", lambda *a, **k: None)
     rc = cli.main(["a question"])         # no injected spawn_fn, no --dry-run
     err = capsys.readouterr().err
 
@@ -273,3 +277,42 @@ def test_format_result_renders_answer_rounds_and_gaps():
     text = format_result(result)
     assert "the answer" in text and "Rounds: 2" in text
     assert "  - x" in text and "  - y" in text
+
+
+# --- .env autoload: live runs work without a manual export (SA-40) -----------
+
+
+def test_load_dotenv_populates_missing_key(tmp_path, monkeypatch):
+    # A key present only in .env (and tolerating `export` + quotes + a # comment) lands in
+    # the environment, so a live run no longer needs a manual export each shell session.
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    env = tmp_path / ".env"
+    env.write_text(
+        "# secrets\nexport ANTHROPIC_API_KEY=\"sk-from-dotenv\"\n\nOTHER=plain\n",
+        encoding="utf-8",
+    )
+
+    cli.load_dotenv(env)
+
+    assert os.environ["ANTHROPIC_API_KEY"] == "sk-from-dotenv"
+    assert os.environ["OTHER"] == "plain"
+
+
+def test_load_dotenv_does_not_override_real_env(tmp_path, monkeypatch):
+    # An exported key always wins over a stale .env — real environment takes precedence.
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-exported")
+    env = tmp_path / ".env"
+    env.write_text("ANTHROPIC_API_KEY=sk-stale\n", encoding="utf-8")
+
+    cli.load_dotenv(env)
+
+    assert os.environ["ANTHROPIC_API_KEY"] == "sk-exported"
+
+
+def test_load_dotenv_missing_file_is_a_noop(tmp_path, monkeypatch):
+    # No .env on disk must not raise and must not invent the key.
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    cli.load_dotenv(tmp_path / "does-not-exist.env")
+
+    assert "ANTHROPIC_API_KEY" not in os.environ
