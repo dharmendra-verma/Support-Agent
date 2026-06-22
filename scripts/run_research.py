@@ -21,6 +21,7 @@ import argparse
 import asyncio
 import os
 import sys
+from pathlib import Path
 
 from research.runner import (
     dry_run_spawn_fn,
@@ -28,6 +29,34 @@ from research.runner import (
     make_spawn_fn,
     make_synthesize_fn,
 )
+
+# Repo root = parent of this scripts/ directory; the .env (if any) lives there.
+_ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
+
+
+def load_dotenv(path: Path = _ENV_PATH) -> None:
+    """Populate ``os.environ`` from a ``.env`` file (e.g. ANTHROPIC_API_KEY) if present.
+
+    Dependency-free (no python-dotenv) to match the repo's minimal-deps convention. Parses
+    ``KEY=value`` lines, ignoring blanks and ``#`` comments, tolerating a leading ``export``
+    and surrounding quotes. A real environment variable always wins: existing keys are NOT
+    overwritten, so an exported ANTHROPIC_API_KEY takes precedence over a stale ``.env``.
+    """
+    if not path.exists():
+        return
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):].lstrip()
+        key, sep, value = line.partition("=")
+        if not sep:
+            continue
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -67,13 +96,18 @@ def main(argv: list[str] | None = None, *, spawn_fn=None, synthesize_fn=None) ->
     args = _build_parser().parse_args(argv)
     criteria = _parse_criteria(args.criteria)
 
+    # Load ANTHROPIC_API_KEY (and any other vars) from the repo-root .env when present,
+    # before the key check below. Real environment variables still take precedence.
+    load_dotenv()
+
     if synthesize_fn is None:
         synthesize_fn = make_synthesize_fn()
     if spawn_fn is None:
         if args.dry_run:
             spawn_fn = dry_run_spawn_fn
         elif not os.environ.get("ANTHROPIC_API_KEY"):
-            print("ANTHROPIC_API_KEY is not set; pass --dry-run for an offline demo.",
+            print("ANTHROPIC_API_KEY is not set; set it in the environment or repo-root .env, "
+                  "or pass --dry-run for an offline demo.",
                   file=sys.stderr)
             return 2
         else:
